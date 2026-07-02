@@ -66,6 +66,20 @@ fm() { # fm <file> <key> -> frontmatter value
   done
 }
 
+@test "reviewer charter carries the evidence rule" {
+  grep -q "reproduction" "$REPO_ROOT/core/charters/reviewer.md"
+  grep -q "speculation" "$REPO_ROOT/core/charters/reviewer.md"
+}
+
+@test "reviewer charter carries test-integrity distinct from test-immutability" {
+  grep -q "test-integrity" "$REPO_ROOT/core/charters/reviewer.md"
+  grep -q "test-immutability" "$REPO_ROOT/core/charters/reviewer.md"
+}
+
+@test "knowledge-curator charter carries the mechanization ladder" {
+  grep -qi "mechani" "$REPO_ROOT/core/charters/knowledge-curator.md"
+}
+
 @test "the three lens files exist with trigger frontmatter; security carries its fixed list" {
   for l in adversarial security performance; do
     [ -f "$REPO_ROOT/core/lenses/$l.md" ]
