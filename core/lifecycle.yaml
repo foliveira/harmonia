@@ -1,0 +1,131 @@
+# Harmonia lifecycle (KTD3) - stages, agent sequences, artifact contract, gates.
+# Skills read this file instead of hardcoding stage logic (R9).
+# `workspace:` locations are relative to the task workspace .harmonia/tasks/<task-id>/.
+version: 1
+
+stages:
+  ideate:
+    purpose: Generate and evaluate directions before committing to one.
+    entry: true
+    agents: [ideator, rubber-duck]
+    artifacts:
+      in: []
+      out:
+        - name: ideas
+          location: "workspace:ideas.md"
+    gates: []
+
+  brainstorm:
+    purpose: Turn a direction into pinned scope - what to build and why.
+    entry: true
+    agents: [scoper, rubber-duck]
+    artifacts:
+      in:
+        - name: ideas
+          location: "workspace:ideas.md"
+          optional: true
+      out:
+        - name: scope
+          location: "workspace:scope.md"
+    gates: []
+
+  plan:
+    purpose: Design how to build within the pinned scope.
+    entry: true
+    agents: [scoper, planner]
+    # The scoper mints workspace:scope.md only when brainstorm didn't already;
+    # an existing declaration is consumed and refined, never re-minted (R31).
+    artifacts:
+      in:
+        - name: scope
+          location: "workspace:scope.md"
+          optional: true
+      out:
+        - name: scope
+          location: "workspace:scope.md"
+        - name: design
+          location: "workspace:design.md"
+    gates: []
+
+  implement:
+    purpose: Build the design against the coverage gate, tests leading.
+    agents: [test-engineer, implementer]
+    loop:
+      type: red-green
+      # Behavior-driven rounds are red-first; coverage-gap rounds are
+      # cover-first (a green-on-arrival test completes the round). On cap the
+      # loop exits incomplete and records the disagreement for the review
+      # lead to arbitrate - never escaping via an exemption marker (KTD12).
+      max_rounds: 6
+    artifacts:
+      in:
+        - name: scope
+          location: "workspace:scope.md"
+        - name: design
+          location: "workspace:design.md"
+          optional: true
+      out:
+        - name: boundary
+          location: "workspace:boundary.md"
+        - name: diff-summary
+          location: "workspace:diff-summary.md"
+    gates: [check-criteria]
+
+  review:
+    purpose: Hierarchical review - panel plus triggered lenses, one verdict.
+    agents: [reviewer]
+    review:
+      mode: panel
+      panel: [test-engineer, simplifier, doc-reviewer]
+      # Trigger rules live in each lens file's frontmatter (KTD11); this list
+      # only names which lenses the stage may dispatch.
+      lenses: [adversarial, security, performance]
+    artifacts:
+      in:
+        - name: scope
+          location: "workspace:scope.md"
+        - name: boundary
+          location: "workspace:boundary.md"
+        - name: diff-summary
+          location: "workspace:diff-summary.md"
+      out:
+        - name: verdict
+          location: "workspace:verdict.md"
+        - name: gate-report
+          location: "workspace:gate-report.md"
+    gates: [coverage, receipts]
+
+  capture:
+    purpose: Record learnings, then ship structured commits.
+    agents: [knowledge-curator, committer]
+    artifacts:
+      in:
+        - name: verdict
+          location: "workspace:verdict.md"
+        - name: scope
+          location: "workspace:scope.md"
+        - name: diff-summary
+          location: "workspace:diff-summary.md"
+      out:
+        - name: completion
+          location: "workspace:done"
+    gates: []
+
+  quick:
+    purpose: Express lane for trivial fixes - implementer and reviewer only.
+    entry: true
+    agents: [implementer, reviewer]
+    review:
+      mode: lead-solo
+      # No panel; the security lens auto-trigger still applies (KTD8).
+      lenses: [security]
+    artifacts:
+      in: []
+      out:
+        - name: gate-report
+          location: "workspace:gate-report.md"
+        - name: verdict
+          location: "workspace:verdict.md"
+        - name: completion
+          location: "workspace:done"
+    gates: [coverage, receipts]
