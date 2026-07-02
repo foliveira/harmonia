@@ -35,7 +35,7 @@ setup() {
   touch "$REPO_ROOT/.harmonia/tasks/fixture/file"
   git -C "$REPO_ROOT" check-ignore -q ".harmonia/tasks/fixture/file"
   ! git -C "$REPO_ROOT" check-ignore -q ".harmonia/coverage-exemptions.yaml"
-  rm -rf "$REPO_ROOT/.harmonia"
+  rm -rf "$REPO_ROOT/.harmonia/tasks/fixture"
 }
 
 @test "README carries the naming rationale" {
