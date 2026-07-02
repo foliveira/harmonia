@@ -1,0 +1,12 @@
+# Ephemeral task workspaces (KTD10) — the exemptions audit log
+# (.harmonia/coverage-exemptions.yaml) is deliberately NOT ignored.
+.harmonia/tasks/
+
+# Local/personal state — the engine repo carries no personal data (R22)
+*.local.*
+.env
+.env.*
+
+# OS noise
+.DS_Store
+Thumbs.db

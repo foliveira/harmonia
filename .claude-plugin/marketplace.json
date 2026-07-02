@@ -1,0 +1,13 @@
+{
+  "name": "harmonia",
+  "owner": {
+    "name": "Fabio Oliveira"
+  },
+  "plugins": [
+    {
+      "name": "harmonia",
+      "source": "./",
+      "description": "Personal SDLC: a thirteen-agent roster bound by the 4 Karpathy rules, thin lifecycle commands, deterministic enforcement, and compounding memory."
+    }
+  ]
+}
