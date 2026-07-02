@@ -13,7 +13,7 @@ claude plugin marketplace add foliveira/harmonia
 claude plugin install harmonia
 ```
 
-Every commit to this repo is an auto-update on installed machines (the plugin declares no version). Live behavior runs from the plugin cache: after changing the engine, commit, run `/plugin update`, and open a fresh session.
+Every commit to this repo is an auto-update on installed machines (the plugin declares no version). Live behavior runs from the plugin cache: after changing the engine, commit, run `claude plugin update harmonia`, and open a fresh session.
 
 ### Disabling in a specific repo (client work)
 
@@ -25,9 +25,53 @@ Add to that repo's `.claude/settings.local.json`:
 
 Emergency brake: set `HARMONIA_DISABLE=1` in the environment — the session-start hook checks it first and stays silent.
 
+## Using it
+
+Every session starts with the 4 rules and relevant learnings injected automatically. The lifecycle is seven explicit commands:
+
+| Command | What runs |
+|---|---|
+| `/harmonia:ideate` | ideator (+ rubber duck) widen the option space into `ideas.md` |
+| `/harmonia:brainstorm` | scoper pins scope — goal, boundaries, non-goals, `run:` success criteria |
+| `/harmonia:plan` | planner designs inside the scope boundary |
+| `/harmonia:implement` | red-green loop: test engineer leads, implementer follows, coverage gate feeds gap rounds |
+| `/harmonia:review` | review lead chairs the panel, dispatches triggered lenses, audits gates and receipts, writes one verdict |
+| `/harmonia:capture` | knowledge curator files learnings; committer ships structured commits |
+| `/harmonia:quick` | express lane: implementer + lead-solo review, gates still active |
+
+Each task lives in `.harmonia/tasks/<task-id>/` in the target repo — a self-gitignoring workspace where stages pass artifacts by path. Entry stages mint it; later stages resolve it; interruption recovery is re-invoking a stage against the on-disk artifacts.
+
+## The gates
+
+- **Criteria** — implement refuses to start until the scope declaration carries machine-checkable `- run:` criteria.
+- **Coverage** — 100% line (and branch, where the format measures it) on changed code, soft block. Exemptions are in-code markers with a mandatory justification (`// harmonia:exempt <why>`), surfaced to the reviewer in the gate report's exemptions-honored section. Overrides append to a versioned audit log at `.harmonia/coverage-exemptions.yaml`. Unsupported languages exit as advisory cannot-measure, never a false pass.
+- **Receipts** — every gate run writes a receipt (task id, timestamp, diff digest); review fails work whose receipts are missing or stale, and a test-immutability hash violation is treated the same way.
+
+## Memory
+
+Two tiers of learnings: `~/.harmonia/` (global — cross-project patterns; client content is refused here) and `docs/learnings/` in each repo (project tier). Legacy `docs/solutions/` entries are read read-only for continuity. Recall filters by language tags and recency under a budget; any roster agent can run it directly:
+
+```bash
+bash ${CLAUDE_PLUGIN_ROOT}/bin/memory/recall.sh
+```
+
 ## The roster
 
 ideator · scoper · planner · implementer · test engineer · reviewer (review lead) · simplifier · knowledge curator · committer · debugger · documentation producer · documentation reviewer · rubber duck
+
+Charters live in `core/charters/` (the portable truth); `agents/` are thin Claude Code wrappers. Review lenses (adversarial, security, performance) are dispatchable prompt assets in `core/lenses/` — the security lens auto-fires on auth, secrets, input parsing, and network-facing diffs.
+
+## Developing the engine
+
+Dev toolchain: `bats`, `jq`, `yamllint`, `check-jsonschema`, `kcov`, `diff-cover` (and `gocover-cobertura` for Go targets).
+
+```bash
+bats tests/                                  # the whole suite
+bin/validate-core.sh                         # lifecycle schema + lens resolution
+bin/coverage/gate.sh --self --base <ref>     # the gate, dogfooded on this repo
+```
+
+The engine is bash + YAML only, and it is held to its own coverage bar.
 
 ## Credits
 
