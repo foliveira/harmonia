@@ -224,3 +224,11 @@ XML
   [ "$status" -eq 0 ]
   [[ "$output" == *"validation"* ]]
 }
+
+@test "files under tests/ are fixtures or suites and owe no coverage" {
+  git -C "$R" checkout -q -- app.ts
+  mkdir -p "$R/tests/fixtures"
+  printf 'package f\n' > "$R/tests/fixtures/seed.go"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ "$status" -eq 0 ]
+}

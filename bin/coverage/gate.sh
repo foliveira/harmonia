@@ -92,6 +92,7 @@ while IFS= read -r f; do
   [ -z "$f" ] && continue
   case "$f" in .harmonia/*) continue ;; esac
   l="$(lang_of "$f")"
+  case "$f" in tests/*) l=skip ;; esac  # test suites and fixtures are not product code
   [ -n "$LANG_FORCE" ] && [ "$l" != yaml ] && [ "$l" != skip ] && l="$LANG_FORCE"
   case "$l" in
     yaml) YAML_FILES="$YAML_FILES$f"$'\n' ;;
