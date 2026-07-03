@@ -35,5 +35,7 @@ Proposed mechanical defense, liftable into a scope declaration:
   recall's filter (for genuinely language-agnostic process learnings), which is a
   product decision about what recall means, not just a lint.
 
-Ladder status: mechanically checkable; this entry is a pointer per the
-mechanization ladder. Supersede it when the capture-side check lands.
+Ladder status: mechanized. Superseded: the capture-side check landed in
+2ed6806 - capture.sh refuses a global-tier capture with no recognized
+language tag (exit 2) unless --unreachable-ok records the trade-off,
+bats-pinned. The entry stays as the reproduction record.

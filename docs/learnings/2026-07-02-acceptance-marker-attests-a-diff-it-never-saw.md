@@ -39,5 +39,11 @@ Proposed mechanical defense, liftable into a scope declaration:
   2026-07-02-coverage-gate-passes-vacuously-on-an-unresolvable-base-ref.md) and
   must handle mint's `ref: none` fallback.
 
-Ladder status: mechanically checkable; entry is a pointer pending the developer's
-decision - the fix exceeds the originally pinned scope, so it needs its own task.
+Ladder status: mechanized. Superseded: the guard landed in task
+2026-07-03-acceptance-hardening (no commit sha existed at capture time; this
+status ships in that task's own commit) - accept writes the digest of the diff
+it attests beside the timestamp, computed by the same shared formula the gate
+receipts use (bin/base-ref-lib.sh), and capture's step 2 recomputes it via
+`workspace.sh verify-acceptance`, refusing a missing marker (exit 5) or a stale
+digest (exit 1) with a re-accept instruction, bats-pinned. The entry stays as
+the reproduction record.
