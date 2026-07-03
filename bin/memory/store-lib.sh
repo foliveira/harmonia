@@ -18,20 +18,30 @@ repo_id() {
   ( cd "$repo" 2>/dev/null && pwd )
 }
 
+# Recognized-language authority: extension patterns -> language tags. Both
+# repo_langs (recall's filter input) and known_langs (capture's global-tier
+# guard) derive from this one program, so the two sides cannot drift.
+repo_langs_awk() {
+  echo '/^go$/        {print "go"}'
+  echo '/^ts$|^tsx$/  {print "typescript"}'
+  echo '/^js$|^jsx$/  {print "javascript"}'
+  echo '/^sh$|^bats$/ {print "bash"}'
+  echo '/^py$/        {print "python"}'
+  echo '/^rb$/        {print "ruby"}'
+  echo '/^ya?ml$/     {print "yaml"}'
+}
+
 # Language tags from tracked (or present) file extensions.
 repo_langs() {
   local repo="${1:-.}"
   local files
   files="$(git -C "$repo" ls-files 2>/dev/null || find "$repo" -maxdepth 3 -type f 2>/dev/null)"
-  echo "$files" | awk -F. 'NF>1 {print tolower($NF)}' | sort -u | awk '
-    /^go$/        {print "go"}
-    /^ts$|^tsx$/  {print "typescript"}
-    /^js$|^jsx$/  {print "javascript"}
-    /^sh$|^bats$/ {print "bash"}
-    /^py$/        {print "python"}
-    /^rb$/        {print "ruby"}
-    /^ya?ml$/     {print "yaml"}
-  ' | sort -u
+  echo "$files" | awk -F. 'NF>1 {print tolower($NF)}' | sort -u | awk "$(repo_langs_awk)" | sort -u
+}
+
+# Every tag repo_langs can emit: the print targets of the authority program.
+known_langs() {
+  repo_langs_awk | sed -n 's/.*{print "\([a-z]*\)"}.*/\1/p' | sort -u
 }
 
 slugify() {
