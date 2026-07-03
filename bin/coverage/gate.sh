@@ -12,12 +12,12 @@
 # justification | 4 cannot measure (unsupported language or missing tool).
 set -u
 
-REPO="." BASE="HEAD" WS="" REPORT="" LANG_FORCE="" NO_BRANCH=0 SELF=0
+REPO="." BASE="HEAD" BASE_GIVEN=0 WS="" REPORT="" LANG_FORCE="" NO_BRANCH=0 SELF=0
 OVERRIDE="" VERIFY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
-    --base) BASE="$2"; shift 2 ;;
+    --base) BASE="$2"; BASE_GIVEN=1; shift 2 ;;
     --workspace) WS="$2"; shift 2 ;;
     --report) REPORT="$2"; shift 2 ;;
     --lang) LANG_FORCE="$2"; shift 2 ;;
@@ -32,6 +32,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ "$SELF" -eq 1 ] && { REPO="$(cd "$HERE/../.." && pwd)"; LANG_FORCE="bash"; }
 REPO="$(cd "$REPO" && pwd)"
 TASK_ID="unknown"; [ -n "$WS" ] && TASK_ID="$(basename "$WS")"
+
+# The workspace base-ref file stores "ref: <sha>" (workspace.sh mint); the gate
+# owns that format so no caller hand-parses it. Absent --base, a workspace's
+# base-ref file supplies the base; either source may carry the "ref: " prefix.
+parse_base_ref() { local v="$1"; printf '%s' "${v#ref: }"; }
+[ "$BASE_GIVEN" -eq 0 ] && [ -n "$WS" ] && [ -f "$WS/base-ref" ] && BASE="$(cat "$WS/base-ref")"
+BASE="$(parse_base_ref "$BASE")"
 
 diff_digest() { git -C "$REPO" diff "$BASE" 2>/dev/null | sha256sum | awk '{print $1}'; }
 
@@ -50,6 +57,15 @@ if [ -n "$OVERRIDE" ]; then
   } >> "$L"  # harmonia:exempt kcov cannot attribute brace-group redirect closers; the append is asserted by tests
   echo "gate: override recorded in .harmonia/coverage-exemptions.yaml"
   exit 0
+fi
+
+# ---------- base must resolve before any diff ----------
+# Never gate a ref git cannot resolve: an unresolvable base makes every diff
+# empty and the gate would pass vacuously. ^{commit} forces object existence -
+# bare rev-parse --verify accepts any well-formed 40-hex sha unseen.
+if ! git -C "$REPO" rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
+  echo "gate: cannot measure - base ref '$BASE' does not resolve"
+  exit 4
 fi
 
 # ---------- receipt verification (review's tier-B audit, KTD7) ----------
