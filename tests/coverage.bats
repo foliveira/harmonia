@@ -243,3 +243,34 @@ XML
   run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
   [ "$status" -eq 0 ]
 }
+
+@test "an unresolvable base ref exits cannot-measure, names the ref, writes no receipt" {
+  run bash "$GATE" --repo "$R" --base "no-such-ref" --workspace "$WS"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"cannot measure"* ]]
+  [[ "$output" == *"no-such-ref"* ]]
+  [ ! -f "$WS/receipts/coverage.json" ]
+  # a well-formed sha absent from the object db must not slip through either
+  run bash "$GATE" --repo "$R" --base "0123456789012345678901234567890123456789" --workspace "$WS"
+  [ "$status" -eq 4 ]
+  [ ! -f "$WS/receipts/coverage.json" ]
+}
+
+@test "a --base in the base-ref file format (ref: <sha>) gates identically to the bare sha" {
+  write_ts_cov
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --report "$R/cov.xml" --lang ts
+  bare_status="$status"; bare_output="$output"
+  [ "$bare_status" -eq 1 ]
+  run bash "$GATE" --repo "$R" --base "ref: $BASE" --workspace "$WS" --report "$R/cov.xml" --lang ts
+  [ "$status" -eq "$bare_status" ]
+  [ "$output" = "$bare_output" ]
+}
+
+@test "with --workspace and no --base the gate reads the workspace base-ref file" {
+  write_ts_cov
+  git -C "$R" add app.ts && git -C "$R" -c user.email=t@t -c user.name=t commit -qm drift
+  run bash "$GATE" --repo "$R" --workspace "$WS" --report "$R/cov.xml" --lang ts
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"app.ts"* ]]
+  grep -q "base: $BASE" "$WS/gate-report.md"
+}
