@@ -153,7 +153,18 @@ XML
 }
 
 @test "self mode parses and degrades to cannot-measure when kcov is hidden" {
-  run env HARMONIA_KCOV=/nonexistent-kcov bash "$GATE" --self --base HEAD
+  # --self resolves its repo from the script's own location, so run a copy of
+  # the gate from inside the sandbox repo: the premise (an uncommitted
+  # executable bash change, kcov missing) holds by construction there,
+  # independent of this repo's working-tree state.
+  git -C "$R" checkout -q -- app.ts
+  mkdir -p "$R/bin/coverage"
+  cp "$REPO_ROOT/bin/coverage/gate.sh" "$REPO_ROOT/bin/coverage/bash.sh" "$R/bin/coverage/"
+  printf '#!/usr/bin/env bash\necho one\n' > "$R/tool.sh"
+  chmod +x "$R/tool.sh"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm selfbase
+  printf '#!/usr/bin/env bash\necho two\n' > "$R/tool.sh"
+  run env HARMONIA_KCOV=/nonexistent-kcov bash "$R/bin/coverage/gate.sh" --self --base HEAD
   [ "$status" -eq 4 ]
 }
 
