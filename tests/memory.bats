@@ -97,3 +97,38 @@ cap() { # cap <title> <tier> <tags> [--client] <<< body
   run bash "$RECALL" --repo "$GOREPO"
   [ "$status" -eq 0 ]
 }
+
+@test "a global capture with topic-only tags is refused, naming the three escape routes" {
+  run bash -c "echo x | bash '$CAPTURE' --title 'Process insight' --tier global --tags process,scoping --repo '$GOREPO'"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"language tag"* ]]
+  [[ "$output" == *"--tier project"* ]]
+  [[ "$output" == *"--unreachable-ok"* ]]
+  [ ! -e "$HARMONIA_HOME/index.md" ]
+  [ ! -e "$HARMONIA_HOME/learnings" ]
+}
+
+@test "an acknowledged unreachable global capture succeeds and carries an inspectable note" {
+  run bash -c "echo x | bash '$CAPTURE' --title 'Process insight' --tier global --tags process,scoping --repo '$GOREPO' --unreachable-ok"
+  [ "$status" -eq 0 ]
+  [ "$(grep -c "Process insight" "$HARMONIA_HOME/index.md")" -eq 1 ]
+  grep -q "^note: unreachable-ok" "$HARMONIA_HOME/learnings/"*process-insight.md
+}
+
+@test "a global capture with a recognized language tag is untouched by the guard" {
+  echo x | cap "Go guard bypass" global "go,process"
+  [ "$(grep -c "Go guard bypass" "$HARMONIA_HOME/index.md")" -eq 1 ]
+  run grep "unreachable-ok" "$HARMONIA_HOME/learnings/"*go-guard-bypass.md
+  [ "$status" -ne 0 ]
+  run bash "$RECALL" --repo "$GOREPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Go guard bypass"* ]]
+}
+
+@test "a project capture with topic-only tags is untouched and recall surfaces it" {
+  echo x | cap "Team ritual" project "process,ritual"
+  ls "$GOREPO/docs/learnings/" | grep -q "team-ritual"
+  run bash "$RECALL" --repo "$GOREPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Team ritual"* ]]
+}

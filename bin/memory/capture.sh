@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Capture a learning into a memory tier (KTD5, R11, R21). Body on stdin.
-#   capture.sh --title <t> --tier global|project --tags a,b [--repo <path>] [--client]
-# Exit: 0 written (or already present); 2 refused (client content, global tier).
+#   capture.sh --title <t> --tier global|project --tags a,b [--repo <path>]
+#              [--client] [--unreachable-ok]
+# Exit: 0 written (or already present); 2 refused (client content to the global
+# tier, or a global entry with no recognized language tag).
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/store-lib.sh"
 
-TITLE="" TIER="" TAGS="" REPO="." CLIENT=0
+TITLE="" TIER="" TAGS="" REPO="." CLIENT=0 UNREACHABLE_OK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --title)  TITLE="$2"; shift 2 ;;
@@ -13,6 +15,7 @@ while [ $# -gt 0 ]; do
     --tags)   TAGS="$2"; shift 2 ;;
     --repo)   REPO="$2"; shift 2 ;;
     --client) CLIENT=1; shift ;;
+    --unreachable-ok) UNREACHABLE_OK=1; shift ;;
     *) echo "capture: unknown argument '$1'" >&2; exit 1 ;;
   esac
 done
@@ -25,10 +28,32 @@ if [ "$CLIENT" -eq 1 ] && [ "$TIER" = "global" ]; then
   exit 2
 fi
 
+# Recall keeps a global entry only when a tag overlaps the recognized-language
+# list (store-lib.sh); with topic-only tags it would be silently unreachable in
+# every repo. Refuse that unless the writer acknowledges the trade-off.
+UNREACHABLE=0
+if [ "$TIER" = "global" ]; then
+  LANG_HIT=0
+  KNOWN=" $(known_langs | tr '\n' ' ') "
+  for t in $(echo "$TAGS" | tr ',' ' '); do
+    [ -n "$t" ] && [[ "$KNOWN" == *" $t "* ]] && LANG_HIT=1
+  done
+  if [ "$LANG_HIT" -eq 0 ]; then
+    UNREACHABLE=1
+  fi
+  if [ "$UNREACHABLE" -eq 1 ] && [ "$UNREACHABLE_OK" -eq 0 ]; then
+    echo "capture: refused - a global-tier entry with no recognized language tag can never surface in recall; add a language tag ($(known_langs | tr '\n' ' ' | sed 's/ $//')), capture with --tier project instead, or pass --unreachable-ok to record it anyway" >&2
+    exit 2
+  fi
+fi
+
 DATE="$(date +%Y-%m-%d)"
 SLUG="$(slugify "$TITLE")"
 FILE="$DATE-$SLUG.md"
 BODY="$(cat)"
+if [ "$UNREACHABLE" -eq 1 ]; then
+  BODY="$BODY"$'\n\n'"note: unreachable-ok - no recognized language tag; recall's language filter cannot surface this entry"
+fi
 SOURCE="$(repo_id "$REPO")"
 
 write_entry() {
