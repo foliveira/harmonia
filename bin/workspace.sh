@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Task-workspace mechanics (KTD10): the deterministic owner of mint, resolve,
-# complete, abandon, and the test-immutability hash checks (KTD12).
+# accept, complete, abandon, and the test-immutability hash checks (KTD12).
 #
 #   workspace.sh mint    --repo R --slug <slug> [--new]
 #   workspace.sh resolve --repo R [--task <id>]
+#   workspace.sh accept  --repo R [--task <id>]
 #   workspace.sh complete --repo R [--task <id>]
 #   workspace.sh abandon  --repo R [--task <id>]
 #   workspace.sh record-test-hashes --repo R [--task <id>]
@@ -81,9 +82,11 @@ case "$CMD" in
   resolve)
     pick
     ;;
-  complete|abandon)
+  complete|abandon|accept)
     ID="$(pick)" || exit $?
-    marker=done; [ "$CMD" = abandon ] && marker=abandoned
+    marker=done
+    [ "$CMD" = abandon ] && marker=abandoned
+    [ "$CMD" = accept ] && marker=accepted
     date -u +%Y-%m-%dT%H:%M:%SZ > "$TASKS/$ID/$marker"
     echo "$ID $marker"
     ;;
@@ -110,7 +113,7 @@ case "$CMD" in
     fi
     ;;
   *)
-    echo "usage: workspace.sh {mint|resolve|complete|abandon|record-test-hashes|verify-test-hashes} ..." >&2
+    echo "usage: workspace.sh {mint|resolve|accept|complete|abandon|record-test-hashes|verify-test-hashes} ..." >&2
     exit 1
     ;;
 esac

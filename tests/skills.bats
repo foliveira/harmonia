@@ -114,3 +114,26 @@ setup() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"usage:"* ]]
 }
+
+@test "accept writes the acceptance marker and leaves the workspace active" {
+  id="$(bash "$WSH" mint --repo "$R" --slug ship)"
+  run bash "$WSH" accept --repo "$R"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$id accepted" ]
+  [ -f "$R/.harmonia/tasks/$id/accepted" ]
+  run bash "$WSH" resolve --repo "$R"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$id" ]   # accepted is not done; resolution still finds it
+}
+
+@test "usage output names accept" {
+  run bash "$WSH"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"accept"* ]]
+}
+
+@test "the capture stage carries the acceptance contract" {
+  grep -q 'name: acceptance' "$REPO_ROOT/core/lifecycle.yaml"
+  grep -q 'workspace:accepted' "$REPO_ROOT/core/lifecycle.yaml"
+  grep -qF 'workspace.sh accept' "$REPO_ROOT/skills/capture/SKILL.md"
+}

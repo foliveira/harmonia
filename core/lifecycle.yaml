@@ -100,6 +100,11 @@ stages:
     agents: [knowledge-curator, committer]
     artifacts:
       in:
+        # Behavioral acceptance: written only by the developer via
+        # `workspace.sh accept` after exercising the built behavior.
+        # Human intent-match; machine gates prove correctness (KTD10).
+        - name: acceptance
+          location: "workspace:accepted"
         - name: verdict
           location: "workspace:verdict.md"
         - name: scope
