@@ -132,3 +132,25 @@ cap() { # cap <title> <tier> <tags> [--client] <<< body
   [ "$status" -eq 0 ]
   [[ "$output" == *"Team ritual"* ]]
 }
+
+@test "a glob tag is matched literally: capture refuses it even from a directory holding a language-named file" {
+  glob_dir="$BATS_TEST_TMPDIR/glob-cwd"
+  mkdir -p "$glob_dir"
+  touch "$glob_dir/go"
+  run bash -c "cd '$glob_dir' && echo x | bash '$CAPTURE' --title 'Glob tag probe' --tier global --tags '*' --repo '$GOREPO'"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"language tag"* ]]
+  [ ! -e "$HARMONIA_HOME/learnings" ]
+}
+
+@test "a glob-bearing index tag cannot surface an entry via pathname expansion in recall" {
+  echo x | cap "Good go entry" global "go"
+  printf -- '- 2026-07-03 [Wild entry](learnings/none.md) tags: *\n' >> "$HARMONIA_HOME/index.md"
+  glob_dir="$BATS_TEST_TMPDIR/glob-cwd"
+  mkdir -p "$glob_dir"
+  touch "$glob_dir/go"
+  run bash -c "cd '$glob_dir' && bash '$RECALL' --repo '$GOREPO'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Good go entry"* ]]
+  [[ "$output" != *"Wild entry"* ]]
+}

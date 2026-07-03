@@ -35,7 +35,9 @@ UNREACHABLE=0
 if [ "$TIER" = "global" ]; then
   LANG_HIT=0
   KNOWN=" $(known_langs | tr '\n' ' ') "
-  for t in $(echo "$TAGS" | tr ',' ' '); do
+  IFS=',' read -r -a tag_tokens <<< "$TAGS"
+  for t in "${tag_tokens[@]}"; do
+    t="${t//[[:space:]]/}"
     [ -n "$t" ] && [[ "$KNOWN" == *" $t "* ]] && LANG_HIT=1
   done
   if [ "$LANG_HIT" -eq 0 ]; then
