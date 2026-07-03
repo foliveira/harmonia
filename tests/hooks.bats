@@ -120,3 +120,24 @@ EOF
   script="$(echo "$resolved" | awk '{print $2}')"
   [ -x "$script" ]
 }
+
+@test "check-criteria parses the base-ref through the shared parser: bare and prefixed forms yield the same digest" {
+  cat > "$WS/scope.md" <<'EOF'
+## Success Criteria
+- run: true
+EOF
+  base="$(git -C "$PROJ" rev-parse HEAD)"
+  echo more >> "$PROJ/main.go"
+  git -C "$PROJ" add -A && git -C "$PROJ" -c user.email=t@t -c user.name=t commit -qm drift
+  expected="$(git -C "$PROJ" diff "$base" | sha256sum | awk '{print $1}')"
+
+  printf '%s\n' "$base" > "$WS/base-ref"
+  run bash "$CHECK" --workspace "$WS" --repo "$PROJ"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r .diff_digest "$WS/receipts/check-criteria.json")" = "$expected" ]
+
+  printf 'ref: %s\n' "$base" > "$WS/base-ref"
+  run bash "$CHECK" --workspace "$WS" --repo "$PROJ"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r .diff_digest "$WS/receipts/check-criteria.json")" = "$expected" ]
+}

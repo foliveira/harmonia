@@ -29,18 +29,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$HERE/../base-ref-lib.sh"
 [ "$SELF" -eq 1 ] && { REPO="$(cd "$HERE/../.." && pwd)"; LANG_FORCE="bash"; }
 REPO="$(cd "$REPO" && pwd)"
 TASK_ID="unknown"; [ -n "$WS" ] && TASK_ID="$(basename "$WS")"
 
-# The workspace base-ref file stores "ref: <sha>" (workspace.sh mint); the gate
-# owns that format so no caller hand-parses it. Absent --base, a workspace's
-# base-ref file supplies the base; either source may carry the "ref: " prefix.
-parse_base_ref() { local v="$1"; printf '%s' "${v#ref: }"; }
+# Absent --base, a workspace's base-ref file supplies the base; parsing,
+# base resolution, and the digest formula are shared (bin/base-ref-lib.sh).
 [ "$BASE_GIVEN" -eq 0 ] && [ -n "$WS" ] && [ -f "$WS/base-ref" ] && BASE="$(cat "$WS/base-ref")"
 BASE="$(parse_base_ref "$BASE")"
-
-diff_digest() { git -C "$REPO" diff "$BASE" 2>/dev/null | sha256sum | awk '{print $1}'; }
 
 # ---------- override audit log ----------
 if [ -n "$OVERRIDE" ]; then
@@ -61,9 +58,8 @@ fi
 
 # ---------- base must resolve before any diff ----------
 # Never gate a ref git cannot resolve: an unresolvable base makes every diff
-# empty and the gate would pass vacuously. ^{commit} forces object existence -
-# bare rev-parse --verify accepts any well-formed 40-hex sha unseen.
-if ! git -C "$REPO" rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
+# empty and the gate would pass vacuously.
+if ! base_resolves "$REPO" "$BASE"; then
   echo "gate: cannot measure - base ref '$BASE' does not resolve"
   exit 4
 fi
@@ -72,7 +68,7 @@ fi
 if [ "$VERIFY" -eq 1 ]; then
   [ -n "$WS" ] || { echo "gate: --verify-receipts needs --workspace" >&2; exit 1; }
   [ -d "$WS/receipts" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
-  cur="$(diff_digest)"
+  cur="$(diff_digest "$REPO" "$BASE")"
   bad=0
   for r in "$WS"/receipts/*.json; do
     [ -f "$r" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
@@ -274,7 +270,7 @@ if [ -n "$WS" ]; then
   "gate": "coverage",
   "task_id": "$TASK_ID",
   "timestamp": "$TS",
-  "diff_digest": "$(diff_digest)",
+  "diff_digest": "$(diff_digest "$REPO" "$BASE")",
   "status": "$st"
 }
 EOF
