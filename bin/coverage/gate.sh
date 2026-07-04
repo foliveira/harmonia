@@ -72,6 +72,13 @@ if [ "$VERIFY" -eq 1 ]; then
   bad=0
   for r in "$WS"/receipts/*.json; do
     [ -f "$r" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
+    # check-criteria validates scope.md (code-independent) but its receipt hashes
+    # the diff at implement-start on a clean tree, so its digest goes code-stale
+    # the moment implement writes code. Validate it by status, not freshness.
+    if [ "$(jq -r '.gate // empty' "$r")" = "check-criteria" ]; then
+      if [ "$(jq -r '.status // empty' "$r")" != "pass" ]; then echo "gate: receipt $(basename "$r") did not pass (status not pass)"; bad=1; fi
+      continue
+    fi
     stored="$(jq -r '.diff_digest // empty' "$r")"
     if [ -z "$stored" ]; then echo "gate: receipt $(basename "$r") carries no digest - stale"; bad=1
     elif [ "$stored" != "$cur" ]; then echo "gate: receipt $(basename "$r") is stale (diff digest mismatch)"; bad=1

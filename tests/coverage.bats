@@ -274,3 +274,74 @@ XML
   [[ "$output" == *"app.ts"* ]]
   grep -q "base: $BASE" "$WS/gate-report.md"
 }
+
+# --- verify-receipts staleness fix (second concern) ------------------------
+# check-criteria validates scope.md (code-independent) but its receipt hashes
+# the diff at implement-start on a clean tree, so its digest goes code-stale the
+# moment implement writes code. verify-receipts must validate check-criteria by
+# presence + status: pass, while coverage stays required digest-fresh.
+
+@test "verify-receipts passes a code-stale check-criteria receipt beside a fresh coverage receipt" {
+  write_ts_cov
+  # fresh coverage receipt: written against the current diff, no drift after
+  bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --report "$R/cov.xml" --lang ts --no-branch >/dev/null || true
+  # check-criteria receipt: status pass but a code-stale (empty-tree) digest -
+  # exactly the implement-start-on-a-clean-tree situation
+  cat > "$WS/receipts/check-criteria.json" <<'JSON'
+{
+  "gate": "check-criteria",
+  "task_id": "2026-07-02-covfix",
+  "timestamp": "2026-07-04T00:00:00Z",
+  "diff_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "status": "pass"
+}
+JSON
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --verify-receipts
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"receipts verified"* ]]
+}
+
+@test "verify-receipts fails a check-criteria receipt whose status is fail" {
+  write_ts_cov
+  bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --report "$R/cov.xml" --lang ts --no-branch >/dev/null || true
+  cat > "$WS/receipts/check-criteria.json" <<'JSON'
+{
+  "gate": "check-criteria",
+  "task_id": "2026-07-02-covfix",
+  "timestamp": "2026-07-04T00:00:00Z",
+  "diff_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "status": "fail"
+}
+JSON
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --verify-receipts
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"did not pass"* ]]
+}
+
+# Optional hardening beyond criterion 4, owned by the test-engineer. The scope
+# requires coverage's integrity guarantee not to weaken; the two tests above do
+# not pin that, because check-criteria sorts first and both would still pass a
+# `break`-instead-of-`continue` masking bug. This pins the both-present case:
+# a passing (code-stale) check-criteria receipt must be silently accepted while
+# a stale coverage receipt beside it still fails. It is red-first - today the
+# gate flags check-criteria stale (the `!= check-criteria` line fails) - and it
+# also catches a fix that masks coverage staleness (the exit-1 line fails).
+@test "verify-receipts still fails a stale coverage receipt when a passing check-criteria receipt is present" {
+  write_ts_cov
+  bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --report "$R/cov.xml" --lang ts --no-branch >/dev/null || true
+  cat > "$WS/receipts/check-criteria.json" <<'JSON'
+{
+  "gate": "check-criteria",
+  "task_id": "2026-07-02-covfix",
+  "timestamp": "2026-07-04T00:00:00Z",
+  "diff_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "status": "pass"
+}
+JSON
+  echo 'drift' >> "$R/app.ts"   # the coverage receipt is now code-stale
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --verify-receipts
+  [ "$status" -eq 1 ]                        # coverage staleness still fails the run
+  [[ "$output" == *"stale"* ]]
+  [[ "$output" == *"coverage"* ]]            # it is coverage.json named stale...
+  [[ "$output" != *"check-criteria"* ]]      # ...and check-criteria is not (its freshness is skipped)
+}
