@@ -2,6 +2,7 @@
 # U5 tests - skill parity and lint guards, plus the workspace.sh matrix.
 
 STAGES="ideate brainstorm plan implement review capture quick"
+RUNNER="flow"   # meta-skill spanning plan->implement->review; not a lifecycle stage
 
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -13,13 +14,20 @@ setup() {
   git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm x
 }
 
-@test "the seven skill names match the lifecycle stages" {
-  [ "$(ls "$REPO_ROOT"/skills/*/SKILL.md | wc -l)" -eq 7 ]
+@test "skill names match the lifecycle stages, plus the one meta-runner" {
+  # the seven stages each have exactly their own skill (parity unchanged)
   for s in $STAGES; do
     [ -f "$REPO_ROOT/skills/$s/SKILL.md" ]
     grep -q "^name: $s$" "$REPO_ROOT/skills/$s/SKILL.md"
     grep -q "^description: " "$REPO_ROOT/skills/$s/SKILL.md"
   done
+  # the runner is the one non-stage skill: present, named, absent from lifecycle.yaml
+  [ -f "$REPO_ROOT/skills/$RUNNER/SKILL.md" ]
+  grep -q "^name: $RUNNER$" "$REPO_ROOT/skills/$RUNNER/SKILL.md"
+  ! grep -q "^  $RUNNER:" "$REPO_ROOT/core/lifecycle.yaml"
+  # count stays exact: seven stage skills plus the runner, nothing unaccounted
+  n_stages="$(echo $STAGES | wc -w | tr -d ' ')"
+  [ "$(ls "$REPO_ROOT"/skills/*/SKILL.md | wc -l)" -eq "$((n_stages + 1))" ]
   grep -q "^  quick:" "$REPO_ROOT/core/lifecycle.yaml"
 }
 
