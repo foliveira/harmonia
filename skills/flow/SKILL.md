@@ -1,0 +1,18 @@
+---
+name: flow
+description: Harmonia flow - run a pinned task through plan, implement, and review in one unattended pass, stopping at human acceptance. Use ONLY when explicitly invoked as /harmonia:flow.
+---
+
+Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
+Read the plan, implement, and review stages from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` - their artifacts and gates are authoritative and define the transitions below; do not hardcode them. This runner is a meta-command, not a lifecycle stage: it holds no stage logic of its own and hardcodes no agent list. Each stage's own SKILL.md owns its orchestration - agents, the red-green loop, the panel, the gates - so execute those procedures and never restate them (R9).
+
+Span: plan, then implement, then review, in one unattended session. Brainstorm stays manual because it is dialogic - the scoper and rubber-duck question the developer, so it cannot run unattended - and acceptance stays manual under the human-only gate. The runner chains neither.
+
+1. Entry gate - require a pinned scope: `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh resolve --repo .` to locate the active workspace (never mint; on ambiguity or no-active-task, surface the script's message and stop). If the resolved workspace has no `scope.md`, refuse and point the developer to `/harmonia:brainstorm` - the runner starts from an already-pinned scope and never mints or auto-scopes.
+2. Plan: execute the plan stage per `${CLAUDE_PLUGIN_ROOT}/skills/plan/SKILL.md`. Scope is present, so the scoper consumes and refines it and never re-mints (R31). Before advancing, confirm the plan stage wrote its `design.md` out-artifact to the workspace; if it did not, halt and hand back.
+3. Implement: execute the implement stage per `${CLAUDE_PLUGIN_ROOT}/skills/implement/SKILL.md`. Its pre-implement gate runs `check-criteria`. If that gate fails because the criteria are not machine-checkable, implement writes no code - this is the one genuine gate-failure stop on the automated span. Halt and hand back with the failing-criteria report and its receipt (`receipts/check-criteria.json`); do not advance.
+4. Advance to review - unconditional: once the implement stage has written its `boundary.md` and `diff-summary.md` out-artifacts, advance to review whether the red-green loop completed or exited incomplete at its `max_rounds` cap. The cap is not a gate failure; the loop records the disagreement in the workspace for the review lead to arbitrate. Do not inspect the coverage result to decide advancing.
+5. Review: execute the review stage per `${CLAUDE_PLUGIN_ROOT}/skills/review/SKILL.md`. Take its `verdict.md` as authoritative. Halt on a failing review gate: if the verdict is not a pass because a coverage or receipts gate failed, or because a test-immutability violation was recorded, stop and hand back with `verdict.md` and `gate-report.md` on disk. Never record a coverage override to keep going, and never override the lead's verdict.
+6. Stop before capture - hand back: the runner ends after review. It never writes the `accepted` marker and never runs `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh accept` - acceptance is a human act. Never run accept on the developer's behalf. Hand back a summary telling the developer to exercise the built behavior, record acceptance with `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh accept --repo .`, then invoke `/harmonia:capture` as a separate manual act. The runner never enters capture.
+
+Pass workspace paths, not prose recaps (R8). Orchestrate only (R9).

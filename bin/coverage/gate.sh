@@ -69,15 +69,27 @@ if [ "$VERIFY" -eq 1 ]; then
   [ -n "$WS" ] || { echo "gate: --verify-receipts needs --workspace" >&2; exit 1; }
   [ -d "$WS/receipts" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
   cur="$(diff_digest "$REPO" "$BASE")"
-  bad=0
+  # code_dep counts receipts that took the digest-freshness path (every receipt
+  # except check-criteria). Zero means no code-dependent receipt was verified -
+  # the audit must refuse rather than certify a tree coverage never measured.
+  bad=0 code_dep=0
   for r in "$WS"/receipts/*.json; do
     [ -f "$r" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
+    # check-criteria validates scope.md (code-independent) but its receipt hashes
+    # the diff at implement-start on a clean tree, so its digest goes code-stale
+    # the moment implement writes code. Validate it by status, not freshness.
+    if [ "$(jq -r '.gate // empty' "$r")" = "check-criteria" ]; then
+      if [ "$(jq -r '.status // empty' "$r")" != "pass" ]; then echo "gate: receipt $(basename "$r") did not pass (status not pass)"; bad=1; fi
+      continue
+    fi
+    code_dep=$((code_dep + 1))
     stored="$(jq -r '.diff_digest // empty' "$r")"
     if [ -z "$stored" ]; then echo "gate: receipt $(basename "$r") carries no digest - stale"; bad=1
     elif [ "$stored" != "$cur" ]; then echo "gate: receipt $(basename "$r") is stale (diff digest mismatch)"; bad=1
     fi
   done
   [ "$bad" -eq 1 ] && exit 1
+  [ "$code_dep" -eq 0 ] && { echo "gate: no coverage receipt to verify - refusing"; exit 1; }
   echo "gate: receipts verified"
   exit 0
 fi
