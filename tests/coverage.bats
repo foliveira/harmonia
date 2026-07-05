@@ -345,3 +345,25 @@ JSON
   [[ "$output" == *"coverage"* ]]            # it is coverage.json named stale...
   [[ "$output" != *"check-criteria"* ]]      # ...and check-criteria is not (its freshness is skipped)
 }
+
+# F1 follow-up: presence, not just freshness. Since check-criteria is validated
+# by status and skipped by the freshness loop, a receipts dir carrying only a
+# passing check-criteria certifies a tree where no code-dependent (coverage)
+# receipt was ever verified - including the coverage-cannot-measure case that
+# writes no coverage.json. verify-receipts must refuse when the loop verified
+# no coverage receipt. setup() already drifts app.ts off BASE, so this is the
+# drifted-tree case: an unmeasured, drifted tree must not be certified.
+@test "verify-receipts refuses a receipts dir carrying only a passing check-criteria receipt" {
+  cat > "$WS/receipts/check-criteria.json" <<'JSON'
+{
+  "gate": "check-criteria",
+  "task_id": "2026-07-02-covfix",
+  "timestamp": "2026-07-04T00:00:00Z",
+  "diff_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "status": "pass"
+}
+JSON
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --verify-receipts
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no coverage receipt"* ]]
+}
