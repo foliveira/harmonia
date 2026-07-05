@@ -40,7 +40,9 @@ if [ -f "$H/index.md" ]; then
     title="${line#*\[}"; title="${title%%\]*}"
     tags="${line#*tags: }"
     keep=0
-    for t in $(echo "$tags" | tr ',' ' '); do
+    IFS=',' read -r -a tag_tokens <<< "$tags"
+    for t in "${tag_tokens[@]}"; do
+      t="${t//[[:space:]]/}"
       [ -n "$t" ] && [[ "$LANGS" == *" $t "* ]] && keep=1
     done
     [ "$keep" -eq 1 ] && add "$d	[global] $d $title (tags: $tags)"

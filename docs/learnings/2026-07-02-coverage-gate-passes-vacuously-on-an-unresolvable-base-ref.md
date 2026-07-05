@@ -40,5 +40,7 @@ Constraint on adjacent work: the acceptance-digest proposal (see
 2026-07-02-acceptance-marker-attests-a-diff-it-never-saw.md) must not inherit this
 hole - the same guard applies to any new digest helper.
 
-Ladder status: mechanically checkable; this entry is a pointer per the
-mechanization ladder. Supersede it when the guard lands with its bats case.
+Ladder status: mechanized. Superseded: the guard landed in 39011fd - gate.sh
+refuses an unresolvable base (including mint's `ref: none` sentinel) with
+exit 4 before any diff, bats-pinned. The entry stays as the reproduction
+record.

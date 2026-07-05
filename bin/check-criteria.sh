@@ -5,6 +5,7 @@
 # Exit: 0 criteria valid; 1 invalid (per-criterion report, receipt still
 # written); 3 cannot-check (no scope declaration at the contract path).
 set -u
+. "$(dirname "${BASH_SOURCE[0]}")/base-ref-lib.sh"
 
 WS="" REPO="."
 while [ $# -gt 0 ]; do
@@ -26,10 +27,10 @@ fi
 TASK_ID="$(basename "$WS")"
 BASE="HEAD"
 if [ -f "$WS/base-ref" ]; then
-  BASE="$(sed -n 's/^ref: *//p' "$WS/base-ref" | head -1)"
+  BASE="$(parse_base_ref "$(cat "$WS/base-ref")")"
   [ -n "$BASE" ] || BASE="HEAD"
 fi
-DIGEST="$(git -C "$REPO" diff "$BASE" 2>/dev/null | sha256sum | awk '{print $1}')"
+DIGEST="$(diff_digest "$REPO" "$BASE")"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Extract the Success Criteria section's bullets.

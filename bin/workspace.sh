@@ -5,14 +5,18 @@
 #   workspace.sh mint    --repo R --slug <slug> [--new]
 #   workspace.sh resolve --repo R [--task <id>]
 #   workspace.sh accept  --repo R [--task <id>]
+#   workspace.sh verify-acceptance --repo R [--task <id>]
 #   workspace.sh complete --repo R [--task <id>]
 #   workspace.sh abandon  --repo R [--task <id>]
 #   workspace.sh record-test-hashes --repo R [--task <id>]
 #   workspace.sh verify-test-hashes --repo R [--task <id>]
 #
-# Exit: 0 ok | 1 failure (incl. hash violation) | 2 ambiguity | 3 no active
-# task | 4 mint refused (incomplete workspace exists; pass --new to force).
+# Exit: 0 ok | 1 failure (incl. hash violation, stale acceptance,
+# unresolvable base) | 2 ambiguity | 3 no active task | 4 mint refused
+# (incomplete workspace exists; pass --new to force) | 5 no acceptance
+# marker (verify-acceptance).
 set -u
+. "$(dirname "${BASH_SOURCE[0]}")/base-ref-lib.sh"
 
 CMD="${1:-}"; shift || true
 REPO="." SLUG="" TASK="" FORCE_NEW=0
@@ -82,11 +86,39 @@ case "$CMD" in
   resolve)
     pick
     ;;
-  complete|abandon|accept)
+  accept)
+    ID="$(pick)" || exit $?
+    base="$(parse_base_ref "$(cat "$TASKS/$ID/base-ref" 2>/dev/null)")"
+    if ! base_resolves "$REPO" "$base"; then
+      echo "workspace: cannot accept - base ref '$base' does not resolve; no acceptance marker written" >&2
+      exit 1
+    fi
+    printf '%s\ndigest: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(diff_digest "$REPO" "$base")" > "$TASKS/$ID/accepted"
+    echo "$ID accepted"
+    ;;
+  verify-acceptance)
+    ID="$(pick)" || exit $?
+    M="$TASKS/$ID/accepted"
+    if [ ! -f "$M" ]; then
+      echo "workspace: no acceptance marker - the developer records acceptance via workspace.sh accept" >&2
+      exit 5
+    fi
+    base="$(parse_base_ref "$(cat "$TASKS/$ID/base-ref" 2>/dev/null)")"
+    if ! base_resolves "$REPO" "$base"; then
+      echo "workspace: cannot verify acceptance - base ref '$base' does not resolve" >&2
+      exit 1
+    fi
+    recorded="$(sed -n 's/^digest: //p' "$M" | head -1)"
+    if [ "$recorded" != "$(diff_digest "$REPO" "$base")" ]; then
+      echo "workspace: acceptance is stale - the accepted digest does not match the live diff; the developer must re-accept (workspace.sh accept)" >&2
+      exit 1
+    fi
+    echo "acceptance verified"
+    ;;
+  complete|abandon)
     ID="$(pick)" || exit $?
     marker=done
     [ "$CMD" = abandon ] && marker=abandoned
-    [ "$CMD" = accept ] && marker=accepted
     date -u +%Y-%m-%dT%H:%M:%SZ > "$TASKS/$ID/$marker"
     echo "$ID $marker"
     ;;
@@ -113,7 +145,7 @@ case "$CMD" in
     fi
     ;;
   *)
-    echo "usage: workspace.sh {mint|resolve|accept|complete|abandon|record-test-hashes|verify-test-hashes} ..." >&2
+    echo "usage: workspace.sh {mint|resolve|accept|verify-acceptance|complete|abandon|record-test-hashes|verify-test-hashes} ..." >&2
     exit 1
     ;;
 esac

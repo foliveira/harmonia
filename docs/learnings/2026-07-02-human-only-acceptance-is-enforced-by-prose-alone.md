@@ -44,6 +44,14 @@ it by putting an agent in the consumption path of a human act; if a guard is
 wanted, a bats test asserting no charter consumes the acceptance artifact pins the
 asymmetry mechanically.
 
-Ladder status: partially mechanizable - option (b) is a one-line check with a real
-usability cost, so this entry doubles as the decision record until the developer
-chooses.
+Ladder status: superseded in its auditability half, decided in the other, by
+task 2026-07-03-acceptance-hardening (no commit sha existed at capture time;
+this status ships in that task's own commit). Option (a) landed: the marker
+carries the diff digest and capture verifies it via `workspace.sh
+verify-acceptance`, so a marker minted before the final diff cannot match it
+once tracked files move (untracked-only changes stay outside the digest - a
+recorded limit of the shared receipts formula), making a violation auditable
+after the fact, bats-pinned. Option (b), the `[ -t 0 ]` check, was considered
+and declined by the developer - it would break the scripted accept flow he
+actually uses - so human-only acceptance stays a prose rule as a decided
+trade-off, no longer a pending choice. The entry stays as the decision record.
