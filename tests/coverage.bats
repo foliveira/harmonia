@@ -350,8 +350,8 @@ JSON
 # by status and skipped by the freshness loop, a receipts dir carrying only a
 # passing check-criteria certifies a tree where no code-dependent (coverage)
 # receipt was ever verified - including the coverage-cannot-measure case that
-# writes no coverage.json. verify-receipts must refuse when the loop verified
-# no coverage receipt. setup() already drifts app.ts off BASE, so this is the
+# writes no coverage.json. verify-receipts must refuse when the loop verified no
+# code-dependent receipt. setup() already drifts app.ts off BASE, so this is the
 # drifted-tree case: an unmeasured, drifted tree must not be certified.
 @test "verify-receipts refuses a receipts dir carrying only a passing check-criteria receipt" {
   cat > "$WS/receipts/check-criteria.json" <<'JSON'
@@ -365,5 +365,5 @@ JSON
 JSON
   run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --verify-receipts
   [ "$status" -eq 1 ]
-  [[ "$output" == *"no coverage receipt"* ]]
+  [[ "$output" == *"no code-dependent receipt"* ]]
 }

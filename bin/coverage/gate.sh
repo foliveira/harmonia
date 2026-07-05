@@ -89,7 +89,7 @@ if [ "$VERIFY" -eq 1 ]; then
     fi
   done
   [ "$bad" -eq 1 ] && exit 1
-  [ "$code_dep" -eq 0 ] && { echo "gate: no coverage receipt to verify - refusing"; exit 1; }
+  [ "$code_dep" -eq 0 ] && { echo "gate: no code-dependent receipt to verify - refusing"; exit 1; }
   echo "gate: receipts verified"
   exit 0
 fi
