@@ -29,15 +29,24 @@ setup() {
   grep -qi 'never mints\|never auto-scope' "$F"
 }
 
-@test "the runner clears stale prior-run out-artifacts at entry and preserves scope.md" {
-  # scope: F3 - transitions key on presence, not provenance. The entry gate clears
-  # all five stale prior-run span out-artifacts so each later presence-keyed
-  # transition (step 2 design.md, step 4 boundary.md + diff-summary.md, step 5
-  # verdict.md + gate-report.md) reflects only this run; scope.md, the pinned
-  # input, is never removed.
-  grep -qiE 'remove .*design\.md.*boundary\.md.*diff-summary\.md.*verdict\.md.*gate-report\.md' "$F"  # all five span out-artifacts are cleared at entry, in order
-  grep -qiE 'stale prior-run|prior-run out|leftover' "$F"               # tied to stale prior-run provenance
-  grep -qiE 'scope\.md.*pinned input.*never removed' "$F"              # scope.md preserved, never cleared
+@test "the runner clears stale prior-run out-artifacts via clear-span, not an inline file list" {
+  # scope: F3/item B - the five-file list + path-confinement moved into
+  # `workspace.sh clear-span` (behaviorally tested in tests/workspace.bats); the
+  # runner must CALL clear-span and no longer restate the file list inline. The
+  # HEAD scope.md-never-removed assert moves to workspace.bats criterion 1, where
+  # the shell actually enforces it (DRY).
+  grep -qF 'workspace.sh clear-span' "$F"                                       # step 1 delegates clearing to the subcommand
+  grep -qiE 'stale prior-run|prior-run out|leftover' "$F"                       # still framed as stale prior-run clearing
+  ! grep -qiE 'remove .*design\.md.*boundary\.md.*diff-summary\.md.*verdict\.md.*gate-report\.md' "$F"  # the inline five-file list is gone
+}
+
+@test "the runner guards scope criteria at entry, refusing a criteria-less scope" {
+  # scope: F5 - step 1 rejects a scope.md with no machine-checkable criteria by
+  # running the check-criteria gate at entry (HEAD only names the gate in step 3),
+  # refusing to /harmonia:brainstorm.
+  grep -qF 'bin/check-criteria.sh' "$F"                                   # step 1 INVOKES the criteria script at entry
+  grep -qiE 'criteria-less|no .*success criteria|machine-checkable' "$F"  # names what it rejects
+  grep -q '/harmonia:brainstorm' "$F"                                     # same refusal target as no-scope
 }
 
 @test "the runner names its plan-implement-review span as one unattended pass" {
@@ -66,6 +75,20 @@ setup() {
   grep -qF 'check-criteria' "$F"
   grep -qi 'writes no code' "$F"
   grep -qi 'halt' "$F"
+}
+
+@test "the runner names the inspectable criteria-halt signal in step 3" {
+  # scope: F6 - step 3 must name the signal it inspects to halt, not just "if the
+  # gate fails": the check-criteria receipt's status, or a non-zero exit. Pin the
+  # tokens to the step-3 line ONLY - step 1's entry-guard prose now also carries
+  # `receipts/check-criteria.json` and `non-zero`, so a whole-file grep is
+  # satisfied by step 1 and blind to a gutted step 3 (F-A). Extract the line that
+  # starts with `3. ` and assert within it, so a step-3 regression turns RED
+  # while step 1 alone cannot satisfy the pin.
+  step3="$(grep -E '^3\. ' "$F")"
+  [ -n "$step3" ]                                        # the step-3 line exists
+  grep -qF 'receipts/check-criteria.json' <<<"$step3"    # the inspectable artifact, named in step 3
+  grep -qiE 'status.*pass|non-zero' <<<"$step3"          # the signal: status != pass / non-zero exit
 }
 
 @test "the runner halts on a failing review coverage or receipts gate" {
