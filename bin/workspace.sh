@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Task-workspace mechanics (KTD10): the deterministic owner of mint, resolve,
-# accept, complete, abandon, and the test-immutability hash checks (KTD12).
+# clear-span, accept, complete, abandon, and the test-immutability hash checks (KTD12).
 #
 #   workspace.sh mint    --repo R --slug <slug> [--new]
 #   workspace.sh resolve --repo R [--task <id>]
+#   workspace.sh clear-span --repo R [--task <id>]
 #   workspace.sh accept  --repo R [--task <id>]
 #   workspace.sh verify-acceptance --repo R [--task <id>]
 #   workspace.sh complete --repo R [--task <id>]
@@ -43,6 +44,7 @@ incomplete() { # list task-ids with neither done nor abandoned marker
 
 pick() { # resolve --task override or the single incomplete workspace
   if [ -n "$TASK" ]; then
+    case "$TASK" in */*|*..*) echo "workspace: invalid task id '$TASK'" >&2; exit 1 ;; esac
     [ -d "$TASKS/$TASK" ] || { echo "workspace: no such task '$TASK'" >&2; exit 1; }
     echo "$TASK"; return 0
   fi
@@ -85,6 +87,22 @@ case "$CMD" in
     ;;
   resolve)
     pick
+    ;;
+  clear-span)
+    ID="$(pick)" || exit $?
+    D="$TASKS/$ID"
+    cleared=""
+    for f in design.md boundary.md diff-summary.md verdict.md gate-report.md; do
+      if [ -f "$D/$f" ]; then
+        rm -f "$D/$f"
+        cleared="$cleared $f"
+      fi
+    done
+    if [ -n "$cleared" ]; then
+      echo "cleared span out-artifacts:$cleared"
+    else
+      echo "clear-span: nothing to clear"
+    fi
     ;;
   accept)
     ID="$(pick)" || exit $?
@@ -145,7 +163,7 @@ case "$CMD" in
     fi
     ;;
   *)
-    echo "usage: workspace.sh {mint|resolve|accept|verify-acceptance|complete|abandon|record-test-hashes|verify-test-hashes} ..." >&2
+    echo "usage: workspace.sh {mint|resolve|clear-span|accept|verify-acceptance|complete|abandon|record-test-hashes|verify-test-hashes} ..." >&2
     exit 1
     ;;
 esac
