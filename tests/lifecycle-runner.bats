@@ -29,6 +29,17 @@ setup() {
   grep -qi 'never mints\|never auto-scope' "$F"
 }
 
+@test "the runner clears stale prior-run out-artifacts at entry and preserves scope.md" {
+  # scope: F3 - transitions key on presence, not provenance. The entry gate clears
+  # all five stale prior-run span out-artifacts so each later presence-keyed
+  # transition (step 2 design.md, step 4 boundary.md + diff-summary.md, step 5
+  # verdict.md + gate-report.md) reflects only this run; scope.md, the pinned
+  # input, is never removed.
+  grep -qiE 'remove .*design\.md.*boundary\.md.*diff-summary\.md.*verdict\.md.*gate-report\.md' "$F"  # all five span out-artifacts are cleared at entry, in order
+  grep -qiE 'stale prior-run|prior-run out|leftover' "$F"               # tied to stale prior-run provenance
+  grep -qiE 'scope\.md.*pinned input.*never removed' "$F"              # scope.md preserved, never cleared
+}
+
 @test "the runner names its plan-implement-review span as one unattended pass" {
   # scope: chains plan, then implement, then review in one unattended session.
   # NB: the three bare-word greps the design listed here are vacuous - the
