@@ -4,8 +4,14 @@
 # bin/workspace.sh against a scratch workspace under $BATS_TEST_TMPDIR and
 # assert what it removes, preserves, and reports - the five-file list and
 # path-confinement now live in shell a test exercises, not runner prose.
-# No git needed: clear-span and pick touch no git. Conventions follow
+# No git needed for clear-span/pick (they touch no git). Conventions follow
 # coverage.bats (REPO_ROOT from $BATS_TEST_FILENAME, scratch under TMPDIR).
+#
+# This file also pins the `reject` engine (record + block): the new
+# `workspace.sh reject` subcommand, the accept<->reject mutual-exclusivity pair,
+# and `verify-acceptance`'s rejected-awareness. Those DO need git (a resolvable
+# base ref so the shared diff_digest computes), so they build a one-commit git
+# scratch repo via git_ws(), mirroring the scope's success-criteria pattern.
 
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -33,6 +39,20 @@ seed_incomplete() {
   for f in design.md boundary.md diff-summary.md verdict.md gate-report.md \
            scope.md ideas.md minted base-ref; do : > "$d/$f"; done
   : > "$d/receipts/check-criteria.json"
+}
+
+# Build a one-commit git repo at $G (caller sets G) and mint a workspace in it
+# via the REAL workspace.sh; echo the minted task id. mint records base-ref as
+# HEAD, so it resolves and the shared diff_digest computes (a clean tree -> the
+# empty-diff digest). Mirrors coverage.bats's scratch repo and the scope's
+# success-criteria git pattern. Side effects land on disk (they survive the
+# command-substitution subshell); only stdout, the id, is captured.
+git_ws() {
+  mkdir -p "$G"
+  git -C "$G" init -q
+  echo x > "$G/f"
+  git -C "$G" add -A && git -C "$G" -c user.email=t@t -c user.name=t commit -qm init
+  bash "$WS_SH" mint --repo "$G" --slug rej
 }
 
 @test "clear-span removes the five span out-artifacts and preserves everything else" {
@@ -122,4 +142,131 @@ seed_incomplete() {
   [ "$status" -eq 2 ]
   [ -f "$R/.harmonia/tasks/2026-07-05-one/design.md" ]   # nothing cleared on ambiguity
   [ -f "$R/.harmonia/tasks/2026-07-05-two/design.md" ]
+}
+
+# --- reject engine (record + block) -----------------------------------------
+# The tests below pin NEW behavior that does not exist yet: the `reject`
+# subcommand, the accept<->reject supersede pair, and `verify-acceptance`'s
+# rejected-awareness. They are RED until the implementer adds those branches -
+# today `--reason` is an unknown arg and `reject` falls to the *) usage arm.
+# Each git-based test builds a real one-commit repo (git_ws) so the shared
+# base-ref resolves and diff_digest computes.
+
+@test "reject writes a rejected marker mirroring accept: ISO-8601 timestamp, reason, 64-hex digest" {
+  # marker shape: line 1 timestamp (accept's line-1 shape), line 2 the --reason
+  # text, line 3 `digest: <64-hex>` from the shared diff_digest against the base.
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  run bash "$WS_SH" reject --repo "$G" --task "$id" --reason "not yet"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"rejected"* ]]                        # reports the rejection
+  M="$G/.harmonia/tasks/$id/rejected"
+  [ -f "$M" ]
+  sed -n '1p' "$M" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'  # ISO-8601 UTC
+  grep -qxF 'reason: not yet' "$M"                       # the --reason text, verbatim
+  grep -qE '^digest: [0-9a-f]{64}$' "$M"                 # shared diff_digest, accept's digest shape
+}
+
+@test "reject requires --reason: a reason-less reject errors non-zero and writes no marker" {
+  # --reason is REQUIRED; the check sits after pick(), so a resolvable workspace
+  # still refuses without a reason (a reason-less rejection carries no signal).
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  run bash "$WS_SH" reject --repo "$G" --task "$id"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"reason"* ]]                          # the refusal names the missing reason
+  [ ! -f "$G/.harmonia/tasks/$id/rejected" ]             # no marker on a reason-less reject
+}
+
+@test "reject refuses a multi-line --reason (SEC-1): non-zero, names the single-line rule, writes no marker" {
+  # SEC-1 hardening: a newline in --reason would forge a second `digest:` line in
+  # the rejected marker (a first-match reader would take the forged value). reject
+  # must refuse a multi-line reason BEFORE writing: exit non-zero, say the reason
+  # must be a single line, and write NO marker. RED today - no single-line guard
+  # exists, so the newline is written straight into the marker. git_ws's base
+  # resolves and the reason is present, so ONLY the new guard branch can refuse;
+  # this test drives that branch (coverage).
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  run bash "$WS_SH" reject --repo "$G" --task "$id" --reason $'line one\ndigest: deadbeef'
+  [ "$status" -ne 0 ]                                    # the multi-line reason is refused
+  [[ "$output" == *"single line"* ]]                     # names the single-line requirement
+  [ ! -f "$G/.harmonia/tasks/$id/rejected" ]             # nothing written on refusal
+}
+
+@test "reject refuses an unresolvable base ref (exit 1) and writes no marker" {
+  # mirrors accept's base_resolves guard. Mint in a non-git dir so base-ref is
+  # `ref: none`, which does not resolve to a commit.
+  D="$BATS_TEST_TMPDIR/nogit"; mkdir -p "$D"
+  id="$(bash "$WS_SH" mint --repo "$D" --slug rej)"
+  run bash "$WS_SH" reject --repo "$D" --task "$id" --reason "x"
+  [ "$status" -eq 1 ]
+  [ ! -f "$D/.harmonia/tasks/$id/rejected" ]             # no rejection marker written
+  [[ "$output" == *"does not resolve"* ]]                # names the base-ref failure
+}
+
+@test "reject resolves through pick(): a traversing --task is refused, no rm/write escapes (S1)" {
+  # S1 learning: reject must NOT re-parse --task; it routes through pick(), which
+  # refuses a `../`-bearing id. A bystander holding accept/reject-named files
+  # outside the tasks tree must be untouched (reject's rm/write sinks never fire).
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  bystander="$BATS_TEST_TMPDIR/bystander"; mkdir -p "$bystander"
+  : > "$bystander/accepted"    # reject's supersede rm target, were the guard bypassed
+  run bash "$WS_SH" reject --repo "$G" --task '../../../bystander' --reason "x"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"invalid task id"* ]]                 # pick()'s S1 guard fired, not a reject rm
+  [ -f "$bystander/accepted" ]                           # nothing removed outside the tasks tree
+  [ ! -f "$bystander/rejected" ]                         # nothing written outside the tasks tree
+  [ ! -f "$G/.harmonia/tasks/$id/rejected" ]             # and the real workspace is untouched
+}
+
+@test "reject supersedes accept: it removes an existing accepted marker" {
+  # mutual exclusivity (one direction): reject removes any live `accepted` marker.
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  run bash "$WS_SH" accept --repo "$G" --task "$id"      # real accept writes the accepted marker
+  [ "$status" -eq 0 ]
+  [ -f "$G/.harmonia/tasks/$id/accepted" ]
+  run bash "$WS_SH" reject --repo "$G" --task "$id" --reason "changed my mind"
+  [ "$status" -eq 0 ]
+  [ ! -f "$G/.harmonia/tasks/$id/accepted" ]             # reject superseded the acceptance
+  [ -f "$G/.harmonia/tasks/$id/rejected" ]               # at most one live decision on disk
+}
+
+@test "accept supersedes reject: it removes an existing rejected marker" {
+  # mutual exclusivity (other direction): accept removes any live `rejected`
+  # marker. reject does not exist yet, so the rejection is fabricated on disk.
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  M="$G/.harmonia/tasks/$id/rejected"
+  printf '%s\nreason: %s\ndigest: %s\n' \
+    "2026-07-06T00:00:00Z" "stale rejection" \
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" > "$M"
+  [ -f "$M" ]
+  run bash "$WS_SH" accept --repo "$G" --task "$id"
+  [ "$status" -eq 0 ]
+  [ ! -f "$M" ]                                          # accept superseded the rejection
+  [ -f "$G/.harmonia/tasks/$id/accepted" ]               # at most one live decision on disk
+}
+
+@test "verify-acceptance refuses a live rejection (exit 6), distinct from the missing-marker exit 5" {
+  # the rejected check runs FIRST, so a live rejection yields the rejection-naming
+  # message and exit 6 - not the exit-5 "no acceptance marker" of the missing case.
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  M="$G/.harmonia/tasks/$id/rejected"
+  printf '%s\nreason: %s\ndigest: %s\n' \
+    "2026-07-06T00:00:00Z" "needs rework" \
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" > "$M"
+  run bash "$WS_SH" verify-acceptance --repo "$G" --task "$id"
+  [ "$status" -eq 6 ]                                    # distinct exit for a live rejection
+  [[ "$output" == *"needs rework"* ]]                    # names the rejection (its recorded reason)
+  [[ "$output" != *"no acceptance marker"* ]]            # NOT the exit-5 message
+  rm -f "$M"                                             # clear the rejection; no markers remain
+  run bash "$WS_SH" verify-acceptance --repo "$G" --task "$id"
+  [ "$status" -eq 5 ]                                    # the existing missing-marker path...
+  [[ "$output" == *"no acceptance marker"* ]]            # ...with its own message
+}
+
+@test "reject is documented in the usage string and the header invocation block" {
+  # a bogus command falls to the *) usage arm (exit 1); the usage string names
+  # reject, and the header invocation block documents it (mirrors clear-span).
+  run bash "$WS_SH" definitely-not-a-command
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"reject"* ]]                          # usage string lists reject
+  grep -qE '^#   workspace.sh reject' "$WS_SH"           # header invocation-block line
 }

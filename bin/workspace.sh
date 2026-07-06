@@ -6,6 +6,7 @@
 #   workspace.sh resolve --repo R [--task <id>]
 #   workspace.sh clear-span --repo R [--task <id>]
 #   workspace.sh accept  --repo R [--task <id>]
+#   workspace.sh reject  --repo R [--task <id>] --reason <text>
 #   workspace.sh verify-acceptance --repo R [--task <id>]
 #   workspace.sh complete --repo R [--task <id>]
 #   workspace.sh abandon  --repo R [--task <id>]
@@ -15,18 +16,19 @@
 # Exit: 0 ok | 1 failure (incl. hash violation, stale acceptance,
 # unresolvable base) | 2 ambiguity | 3 no active task | 4 mint refused
 # (incomplete workspace exists; pass --new to force) | 5 no acceptance
-# marker (verify-acceptance).
+# marker (verify-acceptance) | 6 live rejection blocks verify-acceptance.
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/base-ref-lib.sh"
 
 CMD="${1:-}"; shift || true
-REPO="." SLUG="" TASK="" FORCE_NEW=0
+REPO="." SLUG="" TASK="" FORCE_NEW=0 REASON=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift 2 ;;
     --slug) SLUG="$2"; shift 2 ;;
     --task) TASK="$2"; shift 2 ;;
     --new)  FORCE_NEW=1; shift ;;
+    --reason) REASON="$2"; shift 2 ;;
     *) echo "workspace: unknown argument '$1'" >&2; exit 1 ;;
   esac
 done
@@ -112,10 +114,29 @@ case "$CMD" in
       exit 1
     fi
     printf '%s\ndigest: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(diff_digest "$REPO" "$base")" > "$TASKS/$ID/accepted"
+    rm -f "$TASKS/$ID/rejected"    # mutual exclusivity: accept supersedes reject
     echo "$ID accepted"
+    ;;
+  reject)
+    ID="$(pick)" || exit $?
+    [ -n "$REASON" ] || { echo "workspace: reject needs --reason <text>" >&2; exit 1; }
+    case "$REASON" in *$'\n'*|*$'\r'*) echo "workspace: --reason must be a single line" >&2; exit 1 ;; esac  # SEC-1: a multi-line reason could forge a second digest: line in the marker
+    base="$(parse_base_ref "$(cat "$TASKS/$ID/base-ref" 2>/dev/null)")"
+    if ! base_resolves "$REPO" "$base"; then
+      echo "workspace: cannot reject - base ref '$base' does not resolve; no rejection marker written" >&2
+      exit 1
+    fi
+    printf '%s\nreason: %s\ndigest: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REASON" "$(diff_digest "$REPO" "$base")" > "$TASKS/$ID/rejected"
+    rm -f "$TASKS/$ID/accepted"    # mutual exclusivity: reject supersedes accept
+    echo "$ID rejected"
     ;;
   verify-acceptance)
     ID="$(pick)" || exit $?
+    if [ -f "$TASKS/$ID/rejected" ]; then
+      reason="$(sed -n 's/^reason: //p' "$TASKS/$ID/rejected" | head -1)"
+      echo "workspace: cannot verify acceptance - task '$ID' has a live rejection: ${reason:-(no reason recorded)}; clear it by re-accepting (workspace.sh accept, which supersedes) or abandon the task" >&2
+      exit 6
+    fi
     M="$TASKS/$ID/accepted"
     if [ ! -f "$M" ]; then
       echo "workspace: no acceptance marker - the developer records acceptance via workspace.sh accept" >&2
@@ -163,7 +184,7 @@ case "$CMD" in
     fi
     ;;
   *)
-    echo "usage: workspace.sh {mint|resolve|clear-span|accept|verify-acceptance|complete|abandon|record-test-hashes|verify-test-hashes} ..." >&2
+    echo "usage: workspace.sh {mint|resolve|clear-span|accept|reject|verify-acceptance|complete|abandon|record-test-hashes|verify-test-hashes} ..." >&2
     exit 1
     ;;
 esac
