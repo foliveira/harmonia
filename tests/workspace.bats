@@ -270,3 +270,68 @@ git_ws() {
   [[ "$output" == *"reject"* ]]                          # usage string lists reject
   grep -qE '^#   workspace.sh reject' "$WS_SH"           # header invocation-block line
 }
+
+# --- rejection-staleness reader + coverage follow-ups -----------------------
+# The touchpoint-followups task gives the rejected marker's digest: its first
+# reader: verify-acceptance compares the recorded digest to the live diff and
+# reports when the tracked diff has moved. Test A drives that reader and is RED
+# until it lands (today's branch never emits "stale"). Tests B and C are
+# cover-first and green-on-arrival: B hits the ${reason:-(no reason recorded)}
+# default over an unresolvable base, C pins the reject==accept same-tree digest
+# invariant the reader leans on.
+
+@test "verify-acceptance reports a moved diff as stale but still blocks (exit 6, no expiry)" {
+  # reject on a clean tree records the empty-diff digest; a FRESH verify still
+  # blocks (exit 6) WITHOUT reporting stale; after the tracked diff moves, verify
+  # STILL blocks (exit 6, no expiry) and now reports the rejection stale. The
+  # resolvable git_ws base covers the reader's base_resolves-false side and both
+  # sides of the recorded-vs-live compare. RED today: the stale phase emits no
+  # "stale" until the reader exists.
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  run bash "$WS_SH" reject --repo "$G" --task "$id" --reason "needs work"   # records the clean-tree (empty-diff) digest
+  [ "$status" -eq 0 ]
+  run bash "$WS_SH" verify-acceptance --repo "$G" --task "$id"             # FRESH: recorded digest still matches live
+  [ "$status" -eq 6 ]                                                      # a live rejection always blocks
+  [[ "$output" != *tale* ]]                                                # fresh must NOT report stale (case-robust)
+  echo change >> "$G/f"                                                    # move the tracked diff since the rejection
+  run bash "$WS_SH" verify-acceptance --repo "$G" --task "$id"             # STALE: recorded digest now differs from live
+  [ "$status" -eq 6 ]                                                      # still blocks - the reader reports, never expires
+  [[ "$output" == *stale* ]]                                               # ...and now reports the rejection stale
+}
+
+@test "verify-acceptance falls back to no reason recorded for a reason-less rejection on an unresolvable base (exit 6)" {
+  # cover-first (#4a + the reader's base-unresolvable line). The reject CLI always
+  # writes a reason: line, so hand-craft a rejected marker with NONE to hit the
+  # ${reason:-(no reason recorded)} default. Mint in a non-git dir so base-ref is
+  # `ref: none`: this is the only authorised test that also drives the reader's
+  # base_resolves-false branch, so it must stay non-git (load-bearing per design).
+  D="$BATS_TEST_TMPDIR/nogit"; mkdir -p "$D"
+  id="$(bash "$WS_SH" mint --repo "$D" --slug rej)"                        # base-ref = "ref: none" (never resolves)
+  M="$D/.harmonia/tasks/$id/rejected"
+  printf '%s\ndigest: %s\n' "2026-07-06T00:00:00Z" \
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" > "$M"   # NO reason: line
+  run bash "$WS_SH" verify-acceptance --repo "$D" --task "$id"
+  [ "$status" -eq 6 ]                                                      # a live rejection still blocks
+  [[ "$output" == *"(no reason recorded)"* ]]                             # the reason default fired
+  # pin the reworded base-unresolvable message (adversarial + test-engineer findings):
+  [[ "$output" != *tale* ]]                                               # base-unresolvable is NOT "stale"/"staleness" - only the resolvable path is (case-robust)
+  [[ "$output" == *"does not resolve"* ]]                                 # ...but it still says WHY staleness is unknown: the base does not resolve
+}
+
+@test "reject and accept record the same digest for the same tree" {
+  # cover-first (#4b): reject's digest: must equal accept's digest: for one
+  # working tree - the invariant the staleness reader leans on. Capture reject's
+  # digest BEFORE accept supersedes (removes) the rejected marker. Modify a
+  # TRACKED file so the shared diff_digest is content-bearing, not the empty-diff
+  # constant (diff_digest excludes untracked files).
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  echo change >> "$G/f"                                                    # tracked change; git diff HEAD sees it
+  run bash "$WS_SH" reject --repo "$G" --task "$id" --reason "x"
+  [ "$status" -eq 0 ]
+  rej="$(sed -n 's/^digest: //p' "$G/.harmonia/tasks/$id/rejected" | head -1)"
+  run bash "$WS_SH" accept --repo "$G" --task "$id"                       # supersedes reject, writes the accepted marker
+  [ "$status" -eq 0 ]
+  acc="$(sed -n 's/^digest: //p' "$G/.harmonia/tasks/$id/accepted" | head -1)"
+  [ "$rej" = "$acc" ]                                                      # same tree -> same shared diff_digest
+  [ -n "$rej" ]                                                           # and it is a real (non-empty) digest
+}
