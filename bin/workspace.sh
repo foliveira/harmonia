@@ -134,7 +134,16 @@ case "$CMD" in
     ID="$(pick)" || exit $?
     if [ -f "$TASKS/$ID/rejected" ]; then
       reason="$(sed -n 's/^reason: //p' "$TASKS/$ID/rejected" | head -1)"
-      echo "workspace: cannot verify acceptance - task '$ID' has a live rejection: ${reason:-(no reason recorded)}; clear it by re-accepting (workspace.sh accept, which supersedes) or abandon the task" >&2
+      recorded="$(sed -n 's/^digest: //p' "$TASKS/$ID/rejected" | head -1)"
+      base="$(parse_base_ref "$(cat "$TASKS/$ID/base-ref" 2>/dev/null)")"
+      if ! base_resolves "$REPO" "$base"; then
+        staleness=" (cannot check whether this rejection is current: base ref '$base' does not resolve)"
+      elif [ "$recorded" != "$(diff_digest "$REPO" "$base")" ]; then
+        staleness=" - this rejection is stale: the tracked diff has moved since it was recorded"
+      else
+        staleness=""
+      fi
+      echo "workspace: cannot verify acceptance - task '$ID' has a live rejection: ${reason:-(no reason recorded)}${staleness}; clear it by re-accepting (workspace.sh accept, which supersedes) or abandon the task" >&2
       exit 6
     fi
     M="$TASKS/$ID/accepted"
