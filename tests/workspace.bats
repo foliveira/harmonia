@@ -317,3 +317,21 @@ git_ws() {
   [[ "$output" != *tale* ]]                                               # base-unresolvable is NOT "stale"/"staleness" - only the resolvable path is (case-robust)
   [[ "$output" == *"does not resolve"* ]]                                 # ...but it still says WHY staleness is unknown: the base does not resolve
 }
+
+@test "reject and accept record the same digest for the same tree" {
+  # cover-first (#4b): reject's digest: must equal accept's digest: for one
+  # working tree - the invariant the staleness reader leans on. Capture reject's
+  # digest BEFORE accept supersedes (removes) the rejected marker. Modify a
+  # TRACKED file so the shared diff_digest is content-bearing, not the empty-diff
+  # constant (diff_digest excludes untracked files).
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  echo change >> "$G/f"                                                    # tracked change; git diff HEAD sees it
+  run bash "$WS_SH" reject --repo "$G" --task "$id" --reason "x"
+  [ "$status" -eq 0 ]
+  rej="$(sed -n 's/^digest: //p' "$G/.harmonia/tasks/$id/rejected" | head -1)"
+  run bash "$WS_SH" accept --repo "$G" --task "$id"                       # supersedes reject, writes the accepted marker
+  [ "$status" -eq 0 ]
+  acc="$(sed -n 's/^digest: //p' "$G/.harmonia/tasks/$id/accepted" | head -1)"
+  [ "$rej" = "$acc" ]                                                      # same tree -> same shared diff_digest
+  [ -n "$rej" ]                                                           # and it is a real (non-empty) digest
+}
