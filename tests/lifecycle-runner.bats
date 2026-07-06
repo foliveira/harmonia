@@ -19,12 +19,12 @@ setup() {
   ! grep -q "^  $RUNNER:" "$REPO_ROOT/core/lifecycle.yaml"
 }
 
-@test "the runner requires a pinned scope and refuses to brainstorm" {
+@test "the runner requires a pinned scope and refuses to discuss" {
   # scope: entry contract - requires an already-pinned scope.md; refuses without
-  # one and points to /harmonia:brainstorm; never mints or auto-scopes
+  # one and points to /harmonia:discuss; never mints or auto-scopes
   grep -qF 'workspace.sh resolve' "$F"
   grep -qF 'scope.md' "$F"
-  grep -q '/harmonia:brainstorm' "$F"
+  grep -q '/harmonia:discuss' "$F"
   grep -qi 'refuse' "$F"
   grep -qi 'never mints\|never auto-scope' "$F"
 }
@@ -43,10 +43,10 @@ setup() {
 @test "the runner guards scope criteria at entry, refusing a criteria-less scope" {
   # scope: F5 - step 1 rejects a scope.md with no machine-checkable criteria by
   # running the check-criteria gate at entry (HEAD only names the gate in step 3),
-  # refusing to /harmonia:brainstorm.
+  # refusing to /harmonia:discuss.
   grep -qF 'bin/check-criteria.sh' "$F"                                   # step 1 INVOKES the criteria script at entry
   grep -qiE 'criteria-less|no .*success criteria|machine-checkable' "$F"  # names what it rejects
-  grep -q '/harmonia:brainstorm' "$F"                                     # same refusal target as no-scope
+  grep -q '/harmonia:discuss' "$F"                                     # same refusal target as no-scope
 }
 
 @test "the runner names its plan-implement-review span as one unattended pass" {

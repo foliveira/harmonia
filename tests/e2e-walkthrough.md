@@ -24,7 +24,7 @@ Run in a fresh sandbox repo (copy `tests/fixtures/sandbox/`). Each step names it
 
 ## 4. Full cycle on a feature-shaped task — live session
 
-- [ ] `/harmonia:brainstorm` mints `scope.md` once; `/harmonia:plan` refines, never re-mints (R31). *Script-level evidence: skills lint + workspace matrix. First-drive item.*
+- [ ] `/harmonia:discuss` mints `scope.md` once; `/harmonia:plan` refines, never re-mints (R31). *Script-level evidence: skills lint + workspace matrix. First-drive item.*
 - [x] `/harmonia:implement` with prose-only criteria refuses, naming the offender, receipt still written (AE2 intake). **Observed (headless):** resolved the active workspace, rejected `make it nicer` as not machine-checkable, wrote the failing receipt, refused to patch scope itself ("that's the scoper's job"), and pointed at `/harmonia:plan`.
 - [ ] Cover-first round closes a seeded gap green-on-arrival, implementer turn skipped (AE7). *Script-level evidence: gate report feeds gaps; hash discipline tested in the workspace matrix. First-drive item.*
 - [ ] Adversarial lens fires on a new abstraction; verdict carries attributed findings (AE8). *Script-level evidence: lens frontmatter triggers + stage declarations validated. First-drive item.*
