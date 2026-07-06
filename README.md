@@ -41,6 +41,19 @@ Every session starts with the 4 rules and relevant learnings injected automatica
 
 Each task lives in `.harmonia/tasks/<task-id>/` in the target repo — a self-gitignoring workspace where stages pass artifacts by path. Entry stages mint it; later stages resolve it; interruption recovery is re-invoking a stage against the on-disk artifacts.
 
+### Touchpoints
+
+Six commands act on a task outside the lifecycle stages: they record your decision on the built work, move learnings to and from memory, read the workspace state, and retire a task you are dropping. None of them advances a stage.
+
+| Command | What it does |
+|---|---|
+| `/harmonia:accept` | Records your acceptance of the built work so capture can proceed; supersedes a standing rejection. |
+| `/harmonia:reject` | Records that you rejected the built work, blocking capture until you re-accept or abandon the task; supersedes a standing acceptance. |
+| `/harmonia:abandon` | Retires the active task workspace so resolution skips it. |
+| `/harmonia:remember` | Captures a single learning into the right memory tier. |
+| `/harmonia:recall` | Surfaces relevant past learnings for the current repo mid-session. |
+| `/harmonia:status` | Read-only readout of the active task's stage, markers, and receipts. |
+
 ## The gates
 
 - **Criteria** — implement refuses to start until the scope declaration carries machine-checkable `- run:` criteria.
