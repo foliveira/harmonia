@@ -3,6 +3,7 @@
 
 STAGES="ideate discuss plan implement review capture quick"
 RUNNER="flow"   # meta-skill spanning plan->implement->review; not a lifecycle stage
+TOUCHPOINTS="accept abandon reject recall status remember"   # human-touchpoint skills; not lifecycle stages
 
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -25,9 +26,10 @@ setup() {
   [ -f "$REPO_ROOT/skills/$RUNNER/SKILL.md" ]
   grep -q "^name: $RUNNER$" "$REPO_ROOT/skills/$RUNNER/SKILL.md"
   ! grep -q "^  $RUNNER:" "$REPO_ROOT/core/lifecycle.yaml"
-  # count stays exact: seven stage skills plus the runner, nothing unaccounted
+  # count stays exact: seven stage skills, the runner, and the six touchpoints, nothing unaccounted
   n_stages="$(echo $STAGES | wc -w | tr -d ' ')"
-  [ "$(ls "$REPO_ROOT"/skills/*/SKILL.md | wc -l)" -eq "$((n_stages + 1))" ]
+  n_touchpoints="$(echo $TOUCHPOINTS | wc -w | tr -d ' ')"
+  [ "$(ls "$REPO_ROOT"/skills/*/SKILL.md | wc -l)" -eq "$((n_stages + 1 + n_touchpoints))" ]
   grep -q "^  quick:" "$REPO_ROOT/core/lifecycle.yaml"
 }
 
@@ -46,6 +48,66 @@ setup() {
   for s in $STAGES; do
     grep -q "ONLY when explicitly invoked as /harmonia:$s" "$REPO_ROOT/skills/$s/SKILL.md"
   done
+}
+
+@test "the six human-touchpoint skills exist, are named, and scope to explicit /harmonia: invocation" {
+  # scope: six first-class human-touchpoint commands, each a skills/<name>/SKILL.md
+  # invoked namespaced as /harmonia:<name>. They are NOT lifecycle stages (absent
+  # from lifecycle.yaml, not held to the stage body rules), so this pins only the
+  # shared frontmatter shape - the per-command contracts are pinned below.
+  for t in $TOUCHPOINTS; do
+    f="$REPO_ROOT/skills/$t/SKILL.md"
+    [ -f "$f" ]
+    grep -q "^name: $t$" "$f"
+    grep -q "^description: " "$f"
+    grep -q "ONLY when explicitly invoked as /harmonia:$t" "$f"
+    ! grep -q "^  $t:" "$REPO_ROOT/core/lifecycle.yaml"   # a touchpoint is not a lifecycle stage
+  done
+}
+
+@test "accept, abandon, reject are human-invoked-only wrappers that forbid flow acting for the developer" {
+  # scope integrity section + 2026-07-02 learning: human-only acceptance/rejection
+  # is PROSE-enforced. Each of the three states it is a human-invoked touchpoint
+  # that no other skill or agent - flow named explicitly - runs on the developer's
+  # behalf, and wraps its workspace.sh subcommand rather than forking the logic.
+  for t in accept abandon reject; do
+    f="$REPO_ROOT/skills/$t/SKILL.md"
+    grep -qF "workspace.sh $t" "$f"          # wraps the subcommand; scripts stay the single source of truth
+    grep -qi 'human-invoked' "$f"            # declares itself a human-invoked touchpoint
+    grep -qiw 'flow' "$f"                    # names flow explicitly as forbidden from invoking it
+    grep -qiF "developer's behalf" "$f"      # no other skill or agent runs it for the human
+  done
+  grep -q -- '--reason' "$REPO_ROOT/skills/reject/SKILL.md"   # reject surfaces its required --reason
+}
+
+@test "recall wraps the recall script and carries no human-only clause" {
+  # scope command 3: recall is the human-facing convenience over bin/memory/recall.sh;
+  # NOT human-only - roster agents invoke the script directly (tests/roster.bats),
+  # so it carries no forbid-flow clause and this pins only that it wraps the script.
+  grep -qF 'bin/memory/recall.sh' "$REPO_ROOT/skills/recall/SKILL.md"
+}
+
+@test "status is a read-only readout that derives the stage from the lifecycle contract as data" {
+  # scope command 4 + design section 5: status composes resolve + the lifecycle.yaml
+  # artifact contract into a readout and writes NOTHING (no marker/receipt/file). It
+  # is the one touchpoint that must read lifecycle.yaml as data and carry the R9 /
+  # do-not-hardcode discipline, because its job is deriving a stage from the contract.
+  f="$REPO_ROOT/skills/status/SKILL.md"
+  grep -qF 'workspace.sh resolve' "$f"                 # gets the active task id via resolve
+  grep -qF 'core/lifecycle.yaml' "$f"                  # reads the artifact contract...
+  grep -q 'do not hardcode' "$f"                       # ...as data, not a hardcoded stage table (R9)
+  grep -q 'R9' "$f"
+  grep -qiE 'read-only|writes no|writes nothing' "$f"  # the core promise: it writes no marker
+}
+
+@test "remember routes a single learning through capture.sh with an explicit tier and R21 discipline" {
+  # scope command 6 + success criterion 4: remember elicits an explicit --tier and
+  # passes it through bin/memory/capture.sh; never a bare or defaulted global write.
+  # States the tier discipline - client content never reaches global (R21/--client).
+  f="$REPO_ROOT/skills/remember/SKILL.md"
+  grep -qF 'bin/memory/capture.sh' "$f"
+  grep -q -- '--tier' "$f"
+  grep -qiE 'R21|--client|client' "$f"
 }
 
 @test "mint creates a workspace with base ref and a self-ignoring gitignore" {
@@ -143,7 +205,9 @@ setup() {
 @test "the capture stage carries the acceptance contract" {
   grep -q 'name: acceptance' "$REPO_ROOT/core/lifecycle.yaml"
   grep -q 'workspace:accepted' "$REPO_ROOT/core/lifecycle.yaml"
-  grep -qF 'workspace.sh accept' "$REPO_ROOT/skills/capture/SKILL.md"
+  # the human hand-back points at the command, not the bare script; the underlying
+  # verify-acceptance mechanism is pinned by the separate capture-skill test below.
+  grep -qF '/harmonia:accept' "$REPO_ROOT/skills/capture/SKILL.md"
 }
 
 @test "accept writes the digest of the attested diff beside the timestamp, matching the gate receipt" {
@@ -235,13 +299,20 @@ setup() {
   [[ "$output" == *"verify-acceptance"* ]]
 }
 
-@test "the capture skill verifies the acceptance digest and instructs re-accept on mismatch, never running accept" {
+@test "the capture skill refuses on ANY non-zero verify-acceptance exit (code-agnostic), verifies the digest, never runs accept" {
+  # F1 follow-up: step 2 gates capture on the verify-acceptance mechanism and must
+  # refuse CODE-AGNOSTICALLY - on ANY non-zero exit, not only the enumerated 5/1.
+  # That mechanizes the exit-6 (live-rejection) block this task introduced instead
+  # of leaving it to agent inference. RED today: the prose enumerates exit 5 and
+  # exit 1 but carries no "non-zero" clause. The digest/mismatch/re-accept and
+  # never-run-accept invariants stay pinned (nothing dropped - only the clause added).
   f="$REPO_ROOT/skills/capture/SKILL.md"
-  grep -qF 'workspace.sh verify-acceptance' "$f"
+  grep -qF 'workspace.sh verify-acceptance' "$f"   # the mechanism (invariant, kept)
+  grep -qiE 'non[ -]?zero' "$f"                    # code-agnostic refusal: ANY non-zero exit (NEW, RED)
   grep -qi digest "$f"
   grep -qi mismatch "$f"
   grep -qi 're-accept' "$f"
-  grep -q 'Never run accept' "$f"
+  grep -q 'Never run accept' "$f"                  # never self-accept (invariant, kept)
 }
 
 @test "verify-acceptance refuses an unresolvable base and names it" {

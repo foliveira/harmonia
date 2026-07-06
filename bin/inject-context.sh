@@ -27,7 +27,7 @@ build_payload() {
   local recall
   recall="$(bash "$ROOT/bin/memory/recall.sh" --repo "$PROJECT" --budget-lines "$RECALL_BUDGET" 2>/dev/null)" || return 1
   if [ -n "$recall" ]; then
-    echo "Relevant learnings (run bash \${CLAUDE_PLUGIN_ROOT}/bin/memory/recall.sh for more):"
+    echo "Relevant learnings (run /harmonia:recall for more):"
     echo "$recall"
   fi
 }
