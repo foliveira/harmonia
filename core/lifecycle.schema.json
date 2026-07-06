@@ -8,11 +8,11 @@
     "version": { "const": 1 },
     "stages": {
       "type": "object",
-      "required": ["ideate", "brainstorm", "plan", "implement", "review", "capture", "quick"],
+      "required": ["ideate", "discuss", "plan", "implement", "review", "capture", "quick"],
       "additionalProperties": false,
       "properties": {
         "ideate": { "$ref": "#/definitions/stage" },
-        "brainstorm": { "$ref": "#/definitions/stage" },
+        "discuss": { "$ref": "#/definitions/stage" },
         "plan": { "$ref": "#/definitions/stage" },
         "implement": {
           "allOf": [

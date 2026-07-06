@@ -15,7 +15,7 @@ stages:
           location: "workspace:ideas.md"
     gates: []
 
-  brainstorm:
+  discuss:
     purpose: Turn a direction into pinned scope - what to build and why.
     entry: true
     agents: [scoper, rubber-duck]
@@ -33,7 +33,7 @@ stages:
     purpose: Design how to build within the pinned scope.
     entry: true
     agents: [scoper, planner]
-    # The scoper mints workspace:scope.md only when brainstorm didn't already;
+    # The scoper mints workspace:scope.md only when discuss didn't already;
     # an existing declaration is consumed and refined, never re-minted (R31).
     artifacts:
       in:

@@ -32,7 +32,7 @@ Every session starts with the 4 rules and relevant learnings injected automatica
 | Command | What runs |
 |---|---|
 | `/harmonia:ideate` | ideator (+ rubber duck) widen the option space into `ideas.md` |
-| `/harmonia:brainstorm` | scoper pins scope — goal, boundaries, non-goals, `run:` success criteria |
+| `/harmonia:discuss` | scoper pins scope — goal, boundaries, non-goals, `run:` success criteria |
 | `/harmonia:plan` | planner designs inside the scope boundary |
 | `/harmonia:implement` | red-green loop: test engineer leads, implementer follows, coverage gate feeds gap rounds |
 | `/harmonia:review` | review lead chairs the panel, dispatches triggered lenses, audits gates and receipts, writes one verdict |

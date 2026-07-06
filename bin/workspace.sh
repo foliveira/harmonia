@@ -52,7 +52,7 @@ pick() { # resolve --task override or the single incomplete workspace
   list="$(incomplete)"
   count="$(echo "$list" | sed '/^$/d' | wc -l | tr -d ' ')"
   if [ "$count" -eq 0 ]; then
-    echo "workspace: no active task - start an entry stage (ideate/brainstorm/plan/quick) or pass --task <id>" >&2
+    echo "workspace: no active task - start an entry stage (ideate/discuss/plan/quick) or pass --task <id>" >&2
     exit 3
   fi
   if [ "$count" -gt 1 ]; then

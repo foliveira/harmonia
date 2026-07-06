@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # U5 tests - skill parity and lint guards, plus the workspace.sh matrix.
 
-STAGES="ideate brainstorm plan implement review capture quick"
+STAGES="ideate discuss plan implement review capture quick"
 RUNNER="flow"   # meta-skill spanning plan->implement->review; not a lifecycle stage
 
 setup() {
