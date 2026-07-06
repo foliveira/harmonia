@@ -103,9 +103,13 @@ setup() {
 @test "the runner stops before capture and never accepts" {
   # scope: pauses before capture; never writes accepted, never runs accept.
   # Reuses capture's exact token so the human-only-acceptance invariant holds on
-  # this second automated path to the boundary (per the 2026-07-02 learning).
-  grep -q 'Never run accept' "$F"           # the exact token from capture/SKILL.md
-  grep -qF 'workspace.sh accept' "$F"        # names the human command in the handback
+  # this second automated path to the boundary (per the 2026-07-02 learning). The
+  # hand-back pin is on /harmonia:accept, not the bare script: flow's self-restraint
+  # clause still names `workspace.sh accept` (the script it will NOT run), so a
+  # `workspace.sh accept` pin would pass vacuously off that residual mention and
+  # never test that the hand-back moved to the command.
+  grep -q 'Never run accept' "$F"            # the exact token from capture/SKILL.md
+  grep -qF '/harmonia:accept' "$F"           # the hand-back names the human command, not the bare script
   grep -q '/harmonia:capture' "$F"           # points there as the manual next step
   grep -qi 'acceptance is a human act' "$F"
   grep -qi 'never enters capture\|ends after review' "$F"

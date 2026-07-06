@@ -49,7 +49,7 @@ Each task lives in `.harmonia/tasks/<task-id>/` in the target repo — a self-gi
 
 ## Memory
 
-Two tiers of learnings: `~/.harmonia/` (global — cross-project patterns; client content is refused here) and `docs/learnings/` in each repo (project tier). Legacy `docs/solutions/` entries are read read-only for continuity. Recall filters by language tags and recency under a budget; any roster agent can run it directly:
+Two tiers of learnings: `~/.harmonia/` (global — cross-project patterns; client content is refused here) and `docs/learnings/` in each repo (project tier). Legacy `docs/solutions/` entries are read read-only for continuity. Recall filters by language tags and recency under a budget; run `/harmonia:recall` to pull more mid-session. Any roster agent or hook can run the underlying script directly:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/bin/memory/recall.sh
