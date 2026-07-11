@@ -1,9 +1,8 @@
 ---
 name: recall
 description: Harmonia recall - surface relevant past learnings for the current repo mid-session. Use ONLY when explicitly invoked as /harmonia:recall.
+disable-model-invocation: true
 ---
-
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
 
 Run the recall script and surface the summaries it returns:
 

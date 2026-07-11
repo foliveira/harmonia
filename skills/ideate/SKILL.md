@@ -1,9 +1,10 @@
 ---
 name: ideate
 description: Harmonia ideate stage - generate and evaluate divergent directions before committing to one. Use ONLY when explicitly invoked as /harmonia:ideate.
+disable-model-invocation: true
 ---
 
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
+Your working contract is the 4 rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
 Read the `ideate` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` - its agent sequence and artifact contract are authoritative; do not hardcode them.
 
 1. Workspace: run `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh mint --repo . --slug <short-task-slug>` (entry stage). If it refuses because an incomplete workspace exists, surface its message verbatim and stop - the user either continues that task (`--task <id>`) or forces `--new`.

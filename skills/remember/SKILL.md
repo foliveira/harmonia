@@ -1,9 +1,8 @@
 ---
 name: remember
 description: Harmonia remember - capture a single learning into the right memory tier. Use ONLY when explicitly invoked as /harmonia:remember.
+disable-model-invocation: true
 ---
-
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
 
 Capture ONE learning through the memory script with an explicit tier. Never a bare or defaulted global write.
 

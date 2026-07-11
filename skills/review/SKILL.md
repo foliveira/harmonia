@@ -3,8 +3,8 @@ name: review
 description: Harmonia review stage - hierarchical review under the review lead with gates and receipts. Use ONLY when explicitly invoked as /harmonia:review.
 ---
 
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
-Read the `review` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` - the panel roster and lens name list live there and are authoritative - do not hardcode them (KTD11); each lens file under `${CLAUDE_PLUGIN_ROOT}/core/lenses/` carries its own trigger rules in frontmatter, which are authoritative for dispatch.
+Your working contract is the 4 rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
+Read the `review` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` (already in context if the flow runner loaded it - do not re-read) - the panel roster and lens name list live there and are authoritative - do not hardcode them (KTD11); each lens file under `${CLAUDE_PLUGIN_ROOT}/core/lenses/` carries its own trigger rules in frontmatter, which are authoritative for dispatch.
 
 1. Workspace: `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh resolve --repo .` (later stage: never mints; surface ambiguity or no-active-task and stop).
 2. Gates before judgment:

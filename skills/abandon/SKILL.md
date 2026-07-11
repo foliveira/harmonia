@@ -1,9 +1,8 @@
 ---
 name: abandon
 description: Harmonia abandon - retire the active task workspace so resolution skips it. Use ONLY when explicitly invoked as /harmonia:abandon.
+disable-model-invocation: true
 ---
-
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
 
 This is a human-invoked touchpoint. Retiring a task is the developer's call: no other skill or agent - flow explicitly - runs it or `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh abandon` on the developer's behalf.
 

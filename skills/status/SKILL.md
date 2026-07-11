@@ -1,9 +1,8 @@
 ---
 name: status
 description: Harmonia status - a read-only readout of the active task's stage, markers, and receipts. Use ONLY when explicitly invoked as /harmonia:status.
+disable-model-invocation: true
 ---
-
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
 
 This is a read-only readout: it writes nothing - no marker, no receipt, no workspace file.
 
