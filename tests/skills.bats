@@ -4,6 +4,7 @@
 STAGES="ideate discuss plan implement review capture quick"
 RUNNER="flow"   # meta-skill spanning plan->implement->review; not a lifecycle stage
 TOUCHPOINTS="accept abandon reject recall status remember"   # human-touchpoint skills; not lifecycle stages
+SETUP="onboard"   # non-stage setup skill; not a lifecycle stage, not the runner, not a touchpoint
 
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -26,10 +27,11 @@ setup() {
   [ -f "$REPO_ROOT/skills/$RUNNER/SKILL.md" ]
   grep -q "^name: $RUNNER$" "$REPO_ROOT/skills/$RUNNER/SKILL.md"
   ! grep -q "^  $RUNNER:" "$REPO_ROOT/core/lifecycle.yaml"
-  # count stays exact: seven stage skills, the runner, and the six touchpoints, nothing unaccounted
+  # count stays exact: seven stage skills, the runner, the six touchpoints, and the one onboard setup skill, nothing unaccounted
   n_stages="$(echo $STAGES | wc -w | tr -d ' ')"
   n_touchpoints="$(echo $TOUCHPOINTS | wc -w | tr -d ' ')"
-  [ "$(ls "$REPO_ROOT"/skills/*/SKILL.md | wc -l)" -eq "$((n_stages + 1 + n_touchpoints))" ]
+  n_setup="$(echo $SETUP | wc -w | tr -d ' ')"
+  [ "$(ls "$REPO_ROOT"/skills/*/SKILL.md | wc -l)" -eq "$((n_stages + 1 + n_touchpoints + n_setup))" ]
   grep -q "^  quick:" "$REPO_ROOT/core/lifecycle.yaml"
 }
 
@@ -62,6 +64,22 @@ setup() {
     grep -q "^description: " "$f"
     grep -q "ONLY when explicitly invoked as /harmonia:$t" "$f"
     ! grep -q "^  $t:" "$REPO_ROOT/core/lifecycle.yaml"   # a touchpoint is not a lifecycle stage
+  done
+}
+
+@test "the onboard setup skill exists, is named, and scopes to explicit /harmonia: invocation" {
+  # scope: onboard is a new non-stage setup skill - a skills/onboard/SKILL.md invoked
+  # namespaced as /harmonia:onboard. Like the touchpoints it is NOT a lifecycle stage
+  # (absent from lifecycle.yaml, not held to the stage body rules), so this pins only
+  # the shared frontmatter shape and its non-stage status - the onboard contract
+  # vocabulary is pinned by the coverage/scoper criteria, not here.
+  for s in $SETUP; do
+    f="$REPO_ROOT/skills/$s/SKILL.md"
+    [ -f "$f" ]
+    grep -q "^name: $s$" "$f"
+    grep -q "^description: " "$f"
+    grep -q "ONLY when explicitly invoked as /harmonia:$s" "$f"
+    ! grep -q "^  $s:" "$REPO_ROOT/core/lifecycle.yaml"   # a setup skill is not a lifecycle stage
   done
 }
 

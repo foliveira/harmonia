@@ -367,3 +367,85 @@ JSON
   [ "$status" -eq 1 ]
   [[ "$output" == *"no code-dependent receipt"* ]]
 }
+
+# --- project coverage command: the widened firing domain (onboard task) --------
+# When .harmonia/project.yaml supplies a coverage command, the gate RUNS it fresh
+# on the current tree and measures a changed source file whose extension the
+# built-in adapters route to "unsupported" today (.py), through the command's own
+# report - instead of dropping it to the advisory cannot-measure path. With no
+# coverage command, the built-in adapter path is preserved byte-for-byte.
+
+@test "the gate runs a project coverage command and measures a changed .py through its report" {
+  git -C "$R" checkout -q -- app.ts                            # drop setup's app.ts edit
+  printf 'p1\np2\np3\np4\n' > "$R/calc.py"                     # a .py: lang_of maps it to unsupported today
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm pybase
+  PB="$(git -C "$R" rev-parse HEAD)"
+  printf 'p1\nCHANGED2\np3\nCHANGED4\nNEW5\n' > "$R/calc.py"   # tracked-then-modified, not untracked
+
+  mkdir -p "$R/.harmonia"
+  # The command touches a sentinel (proving the gate RAN it, versus reading a
+  # report lying around), writes a Cobertura report over calc.py with changed
+  # lines 4 and 5 uncovered, and echoes the report path - the seam's output
+  # contract. Relative paths resolve because the gate runs it from $REPO.
+  cat > "$R/.harmonia/project.yaml" <<'YAML'
+coverage: touch cmd-ran.sentinel && printf '<?xml version="1.0"?>\n<coverage line-rate="0.5" version="1.9" timestamp="1">\n<packages><package name="c" line-rate="0.5"><classes>\n<class name="calc" filename="calc.py" line-rate="0.5"><lines>\n<line number="2" hits="1"/>\n<line number="4" hits="0"/>\n<line number="5" hits="0"/>\n</lines></class>\n</classes></package></packages>\n</coverage>\n' > pycov.xml && echo pycov.xml
+YAML
+
+  run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"  # NO --lang, NO --report
+  [ -f "$R/cmd-ran.sentinel" ]                                 # the gate actually RAN the command
+  [ "$status" -eq 1 ]                                          # measured: uncovered changed lines (not advisory exit 4)
+  [[ "$output" == *"calc.py"* ]]                               # the .py surfaced through the command's report
+  # F3: prove measurement flowed THROUGH the report, not the absent-means-uncovered
+  # fallback. Line 4 (CHANGED4) is a changed line the report marks hits="0", so only a
+  # genuinely-consumed report yields the specific token "calc.py:4"; a report never
+  # matched to calc.py (wrong filename=) drops to "calc.py:ALL (absent from coverage
+  # data ...)" and fails both assertions below. The two together distinguish real
+  # measurement from the file-level fallback the prior assertions could not tell apart.
+  [[ "$output" == *"calc.py:4"* ]]                             # a specific measured uncovered line - only the consumed report yields it
+  [[ "$output" != *"absent from coverage data"* ]]             # excludes the absent-means-uncovered fallback entirely
+  [[ "$output" != *"cannot measure"* ]]                        # NOT the advisory cannot-measure path
+  grep -q "calc.py" "$WS/gate-report.md"
+}
+
+@test "a project coverage command that fails yields cannot-measure, not the advisory path" {
+  git -C "$R" checkout -q -- app.ts
+  printf 'p1\np2\n' > "$R/calc.py"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm pybase
+  PB="$(git -C "$R" rev-parse HEAD)"
+  printf 'p1\nCHANGED2\n' > "$R/calc.py"
+  mkdir -p "$R/.harmonia"
+
+  # A present command that exits non-zero exercises the seam's `|| { ... exit 4; }`.
+  printf 'coverage: exit 7\n' > "$R/.harmonia/project.yaml"
+  run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"project coverage command"* ]]             # names the command path...
+  [[ "$output" != *"unsupported language"* ]]                 # ...not the advisory path
+
+  # A present command that exits 0 but names no readable report exercises the -f guard.
+  printf 'coverage: echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"project coverage command"* ]]
+  [[ "$output" != *"unsupported language"* ]]
+}
+
+@test "with no coverage command configured the gate falls back to the built-in adapter" {
+  git -C "$R" checkout -q -- app.ts
+  printf '#!/bin/sh\necho hi\n' > "$R/tool.sh"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm sh
+  SB="$(git -C "$R" rev-parse HEAD)"
+  printf '#!/bin/sh\necho changed\n' > "$R/tool.sh"
+  # project.yaml present but carries only verify keys - no coverage command - so
+  # the gate must take the built-in adapter path exactly as with no file at all.
+  mkdir -p "$R/.harmonia"
+  cat > "$R/.harmonia/project.yaml" <<'YAML'
+test: bats tests/
+lint: shellcheck bin/
+typecheck: true
+build: true
+YAML
+  run env HARMONIA_KCOV=/nonexistent-kcov bash "$GATE" --repo "$R" --base "$SB" --workspace "$WS"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"cannot measure"* ]]
+}

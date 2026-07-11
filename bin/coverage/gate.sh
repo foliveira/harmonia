@@ -30,6 +30,7 @@ while [ $# -gt 0 ]; do
 done
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../base-ref-lib.sh"
+. "$HERE/config-lib.sh"
 [ "$SELF" -eq 1 ] && { REPO="$(cd "$HERE/../.." && pwd)"; LANG_FORCE="bash"; }
 REPO="$(cd "$REPO" && pwd)"
 TASK_ID="unknown"; [ -n "$WS" ] && TASK_ID="$(basename "$WS")"
@@ -111,6 +112,12 @@ lang_of() {
   esac
 }
 
+# A project-supplied coverage command (.harmonia/project.yaml) widens the gate:
+# read it ONCE here so both the classifier (below) and the report seam consult
+# the same value. Empty when absent - then classification and the report source
+# are byte-identical to the no-command path.
+COV_CMD="$(project_config "$REPO" coverage "")"
+
 CODE_FILES="" YAML_FILES="" UNSUPPORTED=""
 while IFS= read -r f; do
   [ -z "$f" ] && continue
@@ -121,7 +128,9 @@ while IFS= read -r f; do
   case "$l" in
     yaml) YAML_FILES="$YAML_FILES$f"$'\n' ;;
     skip) : ;;
-    unsupported) UNSUPPORTED="$UNSUPPORTED$f"$'\n' ;;
+    # unsupported extension: a project coverage command measures any extension
+    # (widen into CODE_FILES); with no command this stays advisory (byte-identical to today).
+    unsupported) if [ -n "$COV_CMD" ]; then CODE_FILES="$CODE_FILES$f"$'\n'; else UNSUPPORTED="$UNSUPPORTED$f"$'\n'; fi ;;
     *) CODE_FILES="$CODE_FILES$f"$'\n' ;;
   esac
 done <<< "$changed"
@@ -151,9 +160,32 @@ fi
 BRANCH_NOTE=""
 if [ -n "$CODE_FILES" ]; then
   if [ -z "$REPORT" ]; then
-    lang="$LANG_FORCE"
-    [ -z "$lang" ] && lang="$(echo "$CODE_FILES" | head -1 | xargs -I{} bash -c 'f="{}"; case "${f##*.}" in ts|tsx|js|jsx) echo ts;; go) echo go;; sh|bats) echo bash;; esac')"
-    REPORT="$(bash "$HERE/$lang.sh" --repo "$REPO")" || { echo "gate: cannot measure - adapter for '$lang' reported a missing tool" ; exit 4; }
+    if [ -n "$COV_CMD" ]; then
+      # Project-supplied coverage command: run it FRESH from $REPO each
+      # invocation (never a pre-produced report). The command must print ONLY the
+      # report path to stdout; this seam captures $(...) stdout, and the gate does
+      # NOT redirect the command's stderr (unlike the adapters, which >/dev/null 2>&1
+      # their own subprocess), so silencing tool chatter is the command's job per the
+      # SKILL, not the gate's. eval honors the shell grammar (pipes/redirs/&&) the
+      # wrapper needs, and runs the value AFTER config-lib strips one quote layer, so
+      # a quoted coverage: value is not a literal - it executes identically to bare
+      # and must be scrutinized as executable. Trusted repo config run from $REPO -
+      # the same footing as the adapters running the repo's own suite.
+      REPORT="$( cd "$REPO" && eval "$COV_CMD" )" \
+        || { echo "gate: cannot measure - project coverage command failed"; exit 4; }
+      case "$REPORT" in /*) : ;; *) REPORT="$REPO/$REPORT" ;; esac  # resolve repo-relative echo
+      [ -f "$REPORT" ] \
+        || { echo "gate: cannot measure - project coverage command produced no readable report"; exit 4; }
+    else
+      # Byte-identical to today: adapter fallback for the detected language.
+      # Reached only when COV_CMD is empty. A --lang/--self-forced extension can
+      # reach this branch (byte-identical to base, which forced it too); only a
+      # COV_CMD-widened file cannot - widening needs COV_CMD non-empty, which routes
+      # to the command branch above.
+      lang="$LANG_FORCE"
+      [ -z "$lang" ] && lang="$(echo "$CODE_FILES" | head -1 | xargs -I{} bash -c 'f="{}"; case "${f##*.}" in ts|tsx|js|jsx) echo ts;; go) echo go;; sh|bats) echo bash;; esac')"
+      REPORT="$(bash "$HERE/$lang.sh" --repo "$REPO")" || { echo "gate: cannot measure - adapter for '$lang' reported a missing tool" ; exit 4; }
+    fi
   fi
   command -v diff-cover >/dev/null 2>&1 || { echo "gate: cannot measure - diff-cover is not installed"; exit 4; }
 
