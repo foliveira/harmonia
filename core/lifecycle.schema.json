@@ -101,7 +101,7 @@
       "enum": [
         "ideator", "scoper", "planner", "implementer", "test-engineer",
         "reviewer", "simplifier", "knowledge-curator", "committer",
-        "debugger", "doc-producer", "doc-reviewer", "rubber-duck"
+        "doc-producer", "doc-reviewer", "rubber-duck"
       ]
     },
     "artifact": {

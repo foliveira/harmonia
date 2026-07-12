@@ -79,7 +79,7 @@ stages:
       panel: [test-engineer, simplifier, doc-reviewer]
       # Trigger rules live in each lens file's frontmatter (KTD11); this list
       # only names which lenses the stage may dispatch.
-      lenses: [adversarial, security, performance]
+      lenses: [adversarial, security, performance, regression]
     artifacts:
       in:
         - name: scope
