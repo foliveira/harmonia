@@ -1,6 +1,6 @@
 # Harmonia
 
-A personal SDLC that runs on top of Claude Code: thin lifecycle commands orchestrate a thirteen-agent roster bound by the 4 Karpathy rules, hooks deterministically enforce everything a machine can check, and captured knowledge compounds across sessions and projects.
+A personal SDLC that runs on top of Claude Code: thin lifecycle commands orchestrate a twelve-agent roster bound by the 4 Karpathy rules, hooks deterministically enforce everything a machine can check, and captured knowledge compounds across sessions and projects.
 
 ## Why "Harmonia"
 
@@ -70,9 +70,9 @@ bash ${CLAUDE_PLUGIN_ROOT}/bin/memory/recall.sh
 
 ## The roster
 
-ideator · scoper · planner · implementer · test engineer · reviewer (review lead) · simplifier · knowledge curator · committer · debugger · documentation producer · documentation reviewer · rubber duck
+ideator · scoper · planner · implementer · test engineer · reviewer (review lead) · simplifier · knowledge curator · committer · documentation producer · documentation reviewer · rubber duck
 
-Charters live in `core/charters/` (the portable truth); `agents/` are thin Claude Code wrappers. Review lenses (adversarial, security, performance) are dispatchable prompt assets in `core/lenses/` — the security lens auto-fires on auth, secrets, input parsing, and network-facing diffs.
+Charters live in `core/charters/` (the portable truth); `agents/` are thin Claude Code wrappers. Review lenses (adversarial, security, performance, regression) are dispatchable prompt assets in `core/lenses/` — the security lens auto-fires on auth, secrets, input parsing, and network-facing diffs; the regression lens auto-fires on marker, base-ref, receipt, and shell-quoting diffs, checking the diff against both learning tiers read directly.
 
 ## Developing the engine
 
