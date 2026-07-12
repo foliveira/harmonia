@@ -3,8 +3,8 @@ name: implement
 description: Harmonia implement stage - red-green build against the coverage gate under the criteria gate. Use ONLY when explicitly invoked as /harmonia:implement.
 ---
 
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
-Read the `implement` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` - agents, artifacts, gates, and the red-green `loop` definition (including `max_rounds`) are authoritative; do not hardcode them.
+Your working contract is the 4 rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
+Read the `implement` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` (already in context if the flow runner loaded it - do not re-read) - agents, artifacts, gates, and the red-green `loop` definition (including `max_rounds`) are authoritative; do not hardcode them.
 
 1. Workspace: `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh resolve --repo .` (later stage: never mints; on ambiguity or no-active-task, surface the script's message and stop).
 2. Criteria gate (tier B): `bash ${CLAUDE_PLUGIN_ROOT}/bin/check-criteria.sh --workspace <ws> --repo .` - refuse to start while it fails (Goal-Driven Execution). It writes its receipt.

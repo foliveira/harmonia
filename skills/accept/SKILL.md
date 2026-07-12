@@ -1,9 +1,8 @@
 ---
 name: accept
 description: Harmonia accept - record human acceptance of the built work so capture can proceed. Use ONLY when explicitly invoked as /harmonia:accept.
+disable-model-invocation: true
 ---
-
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
 
 This is a human-invoked touchpoint. Acceptance is a human act: no other skill or agent - flow explicitly - runs it or `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh accept` on the developer's behalf. The developer types `/harmonia:accept` only after exercising the built behavior and confirming it matches intent.
 

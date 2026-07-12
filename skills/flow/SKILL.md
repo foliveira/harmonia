@@ -3,7 +3,7 @@ name: flow
 description: Harmonia flow - run a pinned task through plan, implement, and review in one unattended pass, stopping at human acceptance. Use ONLY when explicitly invoked as /harmonia:flow.
 ---
 
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
+Your working contract is the 4 rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
 Read the plan, implement, and review stages from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` - their artifacts and gates are authoritative and define the transitions below; do not hardcode them. This runner is a meta-command, not a lifecycle stage: it holds no stage logic of its own and hardcodes no agent list. Each stage's own SKILL.md owns its orchestration - agents, the red-green loop, the panel, the gates - so execute those procedures and never restate them (R9).
 
 Span: plan, then implement, then review, in one unattended session. Discuss stays manual because it is dialogic - the scoper and rubber-duck question the developer, so it cannot run unattended - and acceptance stays manual under the human-only gate. The runner chains neither.

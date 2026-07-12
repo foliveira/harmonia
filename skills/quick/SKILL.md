@@ -3,7 +3,7 @@ name: quick
 description: Harmonia express lane - implementer plus lead-solo review for trivial fixes, gates still active. Use ONLY when explicitly invoked as /harmonia:quick.
 ---
 
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
+Your working contract is the 4 rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
 Read the `quick` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` - agents, artifacts, gates, and its lead-solo review declaration are authoritative; do not hardcode them.
 
 1. Workspace: `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh mint --repo . --slug <short-task-slug>` (entry stage; on refusal, surface the message and stop).

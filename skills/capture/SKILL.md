@@ -1,9 +1,10 @@
 ---
 name: capture
 description: Harmonia capture stage - record learnings into the right memory tier, then ship structured commits. Use ONLY when explicitly invoked as /harmonia:capture.
+disable-model-invocation: true
 ---
 
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
+Your working contract is the 4 rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
 Read the `capture` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` - its agent sequence ends with the committer by contract; do not hardcode.
 
 1. Workspace: `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh resolve --repo .` (later stage: never mints; surface ambiguity or no-active-task and stop).

@@ -1,9 +1,8 @@
 ---
 name: reject
 description: Harmonia reject - record that the developer rejected the built work, blocking capture until it is re-accepted or abandoned. Use ONLY when explicitly invoked as /harmonia:reject.
+disable-model-invocation: true
 ---
-
-Read your working contract first: `${CLAUDE_PLUGIN_ROOT}/core/RULES.md`.
 
 This is a human-invoked touchpoint. Rejection is a human act: no other skill or agent - flow explicitly - runs it or `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh reject` on the developer's behalf.
 
