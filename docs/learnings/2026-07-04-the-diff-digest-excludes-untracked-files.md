@@ -51,3 +51,18 @@ Proposed mechanical defense, liftable into a scope:
 
 Ladder status: mechanizable, not yet mechanized. This entry is the reproduction
 record until a guard lands.
+
+Second instance, 2026-07-12-capability-gaps - caught pre-acceptance. The
+regression lens's first-ever dispatch hit this entry: core/lenses/regression.md
+(the task's central new file, and the lens's own carrier) was untracked at review
+while diff_digest still hashed only `git diff <base>`. The verdict issued a
+staging caveat; the developer staged the file before `workspace.sh accept`, and
+the accepted marker's digest (2d0dc796...) verifiably covers it - a staged new
+file is visible to `git diff <base>`; only a fully untracked one is not. Two
+facts this instance adds: stage every new-file deliverable (`git add`, or
+`git add -N`) before accept, and the rejection-staleness comparison reuses the
+same digest formula, so it inherits the same blind spot. The durable fix - one of
+the two defenses proposed above - is queued as a named future task out of this
+task's verdict. The lens now surfaces this entry whenever a reviewed diff carries
+an untracked deliverable, but the formula itself is still unguarded. Ladder
+unchanged: mechanizable, not yet mechanized, now with two reproduction records.
