@@ -8,7 +8,7 @@ setup() {
   cp "$REPO_ROOT/core/lifecycle.schema.json" "$FIX/core/"
   cp "$REPO_ROOT/core/lifecycle.yaml" "$FIX/core/"
   # Fixture lens files so the resolution check passes unless a test breaks it.
-  for l in adversarial security performance; do
+  for l in adversarial security performance regression; do
     printf -- "---\ntriggers: [test]\n---\nfixture\n" > "$FIX/core/lenses/$l.md"
   done
 }
