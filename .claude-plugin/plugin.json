@@ -1,6 +1,6 @@
 {
   "name": "harmonia",
-  "description": "Personal SDLC: a thirteen-agent roster bound by the 4 Karpathy rules, thin lifecycle commands, deterministic enforcement, and compounding memory.",
+  "description": "Personal SDLC: an agent roster bound by the 4 Karpathy rules, thin lifecycle commands, deterministic enforcement, and compounding memory.",
   "author": {
     "name": "Fabio Oliveira"
   },
