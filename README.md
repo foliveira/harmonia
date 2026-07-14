@@ -1,6 +1,6 @@
 # Harmonia
 
-A personal SDLC that runs on top of Claude Code: thin lifecycle commands orchestrate a twelve-agent roster bound by the 4 Karpathy rules, hooks deterministically enforce everything a machine can check, and captured knowledge compounds across sessions and projects.
+A personal SDLC for Claude Code and OpenCode: thin lifecycle commands orchestrate a twelve-agent roster bound by the 4 Karpathy rules, hooks deterministically enforce everything a machine can check, and captured knowledge compounds across sessions and projects.
 
 ## Why "Harmonia"
 
