@@ -330,3 +330,35 @@ refused() { # refused <status>
   rm -rf "$SRC"
   [ -r "$TGT/harmonia/core/RULES.md" ]
 }
+
+@test "swap-time ownership re-check refuses a foreign engine home staged mid-window and leaves it byte-intact" {
+  # Pre-stage a foreign (unmarked) dir at the engine home AND a valid staged
+  # tree, then drive ONLY the swap step through the sourceable seam. This
+  # reproduces a foreign dir appearing during the build-and-swap window, which
+  # pre-flight (install-opencode.sh:82) cannot catch. Deterministic - no race.
+  mkdir -p "$TGT/harmonia"
+  printf 'precious' > "$TGT/harmonia/precious.txt"          # foreign: no core/RULES.md
+  STAGED="$TGT/harmonia.new.staged"
+  mkdir -p "$STAGED/core"
+  printf 'staged' > "$STAGED/core/RULES.md"                 # a valid tree mv would install
+  run bash -c 'source "$1"; swap_engine_home "$2" "$3"' _ "$INSTALLER" "$TGT/harmonia" "$STAGED"
+  refused "$status"
+  [[ "$output" == *"$TGT/harmonia"* ]]                      # names the path (RED on base)
+  [[ "$output" == *"not removed"* ]]                        # the swap-time refusal (RED on base)
+  [ "$(cat "$TGT/harmonia/precious.txt")" = "precious" ]    # byte-intact, not rm -rf'd
+  [ "$(ls "$TGT/harmonia" | wc -l)" -eq 1 ]
+}
+
+@test "a --target symlinked to the filesystem root is refused by the root guard" {
+  # FU-1 defense-in-depth: a symlink whose PHYSICAL location is / must be caught
+  # by the root guard, not slip to a later mkdir failure. Assert the SPECIFIC
+  # guard message ("filesystem root"): on base the logical pwd returns the
+  # symlink path, the guard misses, and the install instead dies at the tmp
+  # mkdir with exit 1 (which refused() accepts) - so a bare refused() passes
+  # vacuously. The message is the discriminator (red on base, green after).
+  ln -s / "$BATS_TEST_TMPDIR/rootlink"
+  run "$INSTALLER" --target "$BATS_TEST_TMPDIR/rootlink"
+  refused "$status"
+  [[ "$output" == *"filesystem root"* ]]
+  [ ! -e /harmonia ]
+}

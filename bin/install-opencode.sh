@@ -27,10 +27,35 @@ usage() {
   echo "  --target <dir>  install into <dir> (default: \$OPENCODE_CONFIG_DIR, else \$HOME/.config/opencode)" >&2
 }
 
-die() {
+die() { # die <exit-code> <message...>
+  local code="$1"; shift
   echo "install-opencode: $*" >&2
-  exit 1
+  exit "$code"
 }
+
+# FU-3: the swap-time ownership re-check plus the one destructive removal and
+# the swap, as a single unit a test can drive in isolation (a foreign dir
+# appearing during the build-and-swap window, which pre-flight at :82 ran too
+# early to see). Belt-and-suspenders, deliberately duplicating the pre-flight
+# ownership test at a second moment; both guards are intended (scope FU-3).
+swap_engine_home() { # swap_engine_home <engine_home> <staged_tmp>
+  local eh="$1" staged="$2"
+  # Re-verify ownership immediately before the destructive rm -rf: if a foreign,
+  # unmarked directory is now at the engine home, refuse and leave it intact -
+  # never remove it.
+  if [ -e "$eh" ] && [ ! -f "$eh/core/RULES.md" ]; then
+    die 1 "refusing: $eh is no longer a harmonia install (no core/RULES.md); left intact, not removed"  # harmonia:exempt kcov does not attribute a die reached only through the sourceable seam's sourced-then-called path; the FU-3 injection test asserts this refusal deterministically (mutants that drop or reorder the check both die)
+  fi
+  rm -rf -- "$eh"          # unconditional; rm -rf is silent on a missing path
+  mv -- "$staged" "$eh"
+}
+
+# Sourceable seam: sourcing this file defines the helpers above and returns
+# here, before the install body, so a test can drive one function in isolation.
+# A direct run (BASH_SOURCE[0] == $0) falls through to the body below.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  return 0
+fi
 
 target=""
 target_set=0
@@ -43,9 +68,8 @@ while [ $# -gt 0 ]; do
       if [ $# -gt 0 ]; then shift; fi
       ;;
     *)
-      echo "install-opencode: unknown argument: $1" >&2
       usage
-      exit 2
+      die 2 "unknown argument: $1"
       ;;
   esac
 done
@@ -54,19 +78,26 @@ if [ "$target_set" -eq 0 ]; then
   target="${OPENCODE_CONFIG_DIR:-${HOME:-}/.config/opencode}"
 fi
 if [ -z "$target" ]; then
-  die "no target: pass --target <dir> or set OPENCODE_CONFIG_DIR"
+  die 1 "no target: pass --target <dir> or set OPENCODE_CONFIG_DIR"
 fi
 
 # Normalize before splicing anywhere: a relative or trailing-slashed target
 # would embed a cwd-dependent or double-slashed path into every placed body.
 mkdir -p -- "$target"
 target="$(cd -- "$target" && pwd)"
-if [ "$target" = "/" ] || [ "$target" = "//" ]; then
-  die "refusing target $target: will not install into the filesystem root; pick a different --target"
+# FU-1: refuse a target whose PHYSICAL location is the filesystem root, so a
+# --target that is a symlink resolving to / cannot slip past this guard (the
+# logical pwd above returns the symlink's own path). The physical form is used
+# only for this comparison; the spliced engine-home path stays the logical
+# target above, so a symlinked tmpdir (e.g. macOS /var -> /private/var) does not
+# alter placed bodies.
+target_phys="$(cd -P -- "$target" && pwd -P)"
+if [ "$target_phys" = "/" ] || [ "$target_phys" = "//" ]; then
+  die 1 "refusing target $target: will not install into the filesystem root; pick a different --target"
 fi
 case "$target" in
   *[!A-Za-z0-9._/-]*)
-    die "target '$target' has an unsupported character; placed bodies embed this path in unquoted shell instructions, so pick a target using only [A-Za-z0-9._/-]"
+    die 1 "target '$target' has an unsupported character; placed bodies embed this path in unquoted shell instructions, so pick a target using only [A-Za-z0-9._/-]"
     ;;
 esac
 
@@ -74,13 +105,18 @@ src="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 engine_home="$target/harmonia"
 cmd_dir="$target/commands"
 
-# Stale temp trees from interrupted runs; -f keeps the unmatched glob silent.
-rm -rf -- "$target"/harmonia.new.*
+# Clear temp trees left by a prior interrupted run. This removes every
+# harmonia.new.* under the target, not only this run's PID, which assumes runs
+# are serial: a concurrent install into the same target would lose its
+# in-progress temp. That is the intended recovery contract, not a bug - it lets
+# the next run clear a wedged target. It cannot be narrowed to the current PID
+# without losing that purpose.
+rm -rf -- "$engine_home".new.*
 
 # Pre-flight, before anything is placed. The engine home is ours only if it
 # bears the signature; anything else is refused intact.
 if [ -e "$engine_home" ] && [ ! -f "$engine_home/core/RULES.md" ]; then
-  die "refusing: $engine_home exists but is not a harmonia install (no core/RULES.md); move it aside or pick another --target"
+  die 1 "refusing: $engine_home exists but is not a harmonia install (no core/RULES.md); move it aside or pick another --target"
 fi
 
 # A file at a name this run will generate is ours only if it carries the
@@ -94,8 +130,7 @@ for d in "$src"/skills/*/; do
   fi
 done
 if [ -n "$conflicts" ]; then
-  printf '%s\n%s' "install-opencode: refusing: existing command files are not harmonia-generated (no marker); move them aside:" "$conflicts" >&2
-  exit 1
+  die 1 "refusing: existing command files are not harmonia-generated (no marker); move them aside:"$'\n'"$conflicts"
 fi
 
 # Temp-build-and-swap: the old engine home is removed only once the new one
@@ -112,14 +147,10 @@ cp -R -- "$src/bin" "$src/core" "$src/skills" "$tmp/"
 esc="$(printf '%s' "$engine_home" | sed 's/[|\\&]/\\&/g')"
 find "$tmp" -type f \( -name '*.md' -o -name '*.yaml' \) | while IFS= read -r f; do
   sed -e 's|[$]{CLAUDE_PLUGIN_ROOT}|'"$esc"'|g' -e 's|/harmonia:|/harmonia-|g' "$f" > "$f.new"
-  cat -- "$f.new" > "$f"
-  rm -f -- "$f.new"
+  mv -- "$f.new" "$f"
 done
 
-if [ -e "$engine_home" ]; then
-  rm -rf -- "$engine_home"
-fi
-mv -- "$tmp" "$engine_home"
+swap_engine_home "$engine_home" "$tmp"
 
 # Command files: collect every marked harmonia-*.md (stale ones from removed
 # skills included), then generate one file per placed skill. Frontmatter is
