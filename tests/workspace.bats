@@ -335,3 +335,46 @@ git_ws() {
   [ "$rej" = "$acc" ]                                                      # same tree -> same shared diff_digest
   [ -n "$rej" ]                                                           # and it is a real (non-empty) digest
 }
+
+# --- verify-test-hashes: empty vs. non-empty manifest -----------------------
+# record-test-hashes writes an EMPTY test-hashes manifest when its test glob
+# matches nothing (a task that touches no tests). GNU `sha256sum -c` treats an
+# empty checksum file as an error ("no properly formatted checksum lines found",
+# exit 1), so verify-test-hashes used to record a bogus KTD12 violation on such
+# a task. The empty manifest must be a vacuous pass; the non-empty path (an
+# edited recorded test still fails) must be untouched. Both drive the real
+# subcommands against a git_ws repo. A sibling non-empty regression also lives
+# in skills.bats ("moved test hashes fail verification"); the pair here pins the
+# empty/non-empty contract at the fix site.
+
+@test "verify-test-hashes vacuously passes an empty manifest with no violation (no test files recorded)" {
+  # a task whose test glob matches nothing: record writes a 0-byte manifest and
+  # verify must exit 0 without recording a violation. RED before the `! -s`
+  # guard, where sha256sum -c's empty-file error drove the else branch to exit 1.
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"     # one-commit repo, no test files
+  run bash "$WS_SH" record-test-hashes --repo "$G" --task "$id"
+  [ "$status" -eq 0 ]
+  manifest="$G/.harmonia/tasks/$id/test-hashes"
+  [ -f "$manifest" ] && [ ! -s "$manifest" ]        # precondition: an empty (0-byte) manifest, as record writes here
+  run bash "$WS_SH" verify-test-hashes --repo "$G" --task "$id"
+  [ "$status" -eq 0 ]                               # vacuous pass, not the empty-file error
+  [[ "$output" == *"no test files recorded"* ]]     # took the new empty-manifest branch, not a violation
+  [ ! -f "$G/.harmonia/tasks/$id/violations" ]      # no bogus KTD12 violation recorded
+}
+
+@test "verify-test-hashes still fails a modified recorded test and records the violation (non-empty manifest untouched)" {
+  # the non-empty path is unchanged: a recorded test file that is later edited
+  # must fail verification (exit 1) and append the test-immutability VIOLATION.
+  G="$BATS_TEST_TMPDIR/gitrepo"; id="$(git_ws)"
+  echo 'assert true' > "$G/thing.bats"              # a test file matching record's glob (untracked, as a fresh test is)
+  run bash "$WS_SH" record-test-hashes --repo "$G" --task "$id"
+  [ "$status" -eq 0 ]
+  manifest="$G/.harmonia/tasks/$id/test-hashes"
+  [ -s "$manifest" ]                                # precondition: a NON-empty manifest (the test file was recorded)
+  echo 'assert weakened' > "$G/thing.bats"          # the recorded test is edited (KTD12)
+  run bash "$WS_SH" verify-test-hashes --repo "$G" --task "$id"
+  [ "$status" -eq 1 ]                               # the violation path still bites
+  V="$G/.harmonia/tasks/$id/violations"
+  [ -f "$V" ]
+  grep -q 'test-immutability VIOLATION' "$V"        # the recorded violation line
+}

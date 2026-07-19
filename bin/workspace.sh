@@ -181,6 +181,10 @@ case "$CMD" in
     ID="$(pick)" || exit $?
     H="$TASKS/$ID/test-hashes"
     [ -f "$H" ] || { echo "workspace: no recorded test hashes - run record-test-hashes after the test-engineer turn" >&2; exit 1; }
+    if [ ! -s "$H" ]; then
+      echo "test hashes verified (no test files recorded)"
+      exit 0
+    fi
     if out="$(cd "$REPO" && sha256sum -c "$H" --quiet 2>&1)"; then
       echo "test hashes verified"
     else
