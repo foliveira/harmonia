@@ -1,7 +1,7 @@
 ---
 role: reviewer
 model_affinity: inherit
-consumes: [scope, boundary, diff-summary, base-ref, diff, gate-report, receipts, audit-log]
+consumes: [scope, boundary, diff-summary, base-ref, diff, gate-report, receipts, audit-log, violations]
 produces: [verdict]
 rules_binding: all-four
 ---

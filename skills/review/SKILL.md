@@ -10,7 +10,7 @@ Read the `review` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` (alread
 2. Gates before judgment:
    - `bash ${CLAUDE_PLUGIN_ROOT}/bin/coverage/gate.sh --repo . --base <workspace base-ref> --workspace <ws>` (soft block: uncovered lines flag the work incomplete; overrides go through `--record-override` and the audit log).
    - `bash ${CLAUDE_PLUGIN_ROOT}/bin/coverage/gate.sh --verify-receipts --workspace <ws> --repo .` - missing or stale receipts FAIL the review (tier B honesty, KTD7).
-3. Dispatch the reviewer (review lead) with the stage's inputs by path: scope, boundary, diff-summary, base-ref, the gate report - including its exemptions-honored section, a mandatory audit input - receipts, and the audit-log delta. The lead convenes the panel declared by this stage, dispatches lenses whose frontmatter triggers match the diff (security auto-fires on its fixed list), runs seats per `${CLAUDE_PLUGIN_ROOT}/core/patterns/panel.md` with model-diverse dispatch, and writes one attributed `verdict.md` to the workspace.
+3. Dispatch the reviewer (review lead) by path with every artifact this stage declares `in`, plus the rest of the lead's charter `consumes:` list - both are authoritative and neither is restated here (R9). The lead convenes the panel declared by this stage, dispatches lenses whose frontmatter triggers match the diff (security auto-fires on its fixed list), runs seats per `${CLAUDE_PLUGIN_ROOT}/core/patterns/panel.md` with model-diverse dispatch, and writes one attributed `verdict.md` to the workspace.
 4. A test-immutability violation recorded in the workspace is treated like a missing receipt: the review fails.
 
 Pass workspace paths, not prose recaps (R8). Orchestrate only (R9).

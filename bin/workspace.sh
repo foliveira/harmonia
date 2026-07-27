@@ -94,7 +94,7 @@ case "$CMD" in
     ID="$(pick)" || exit $?
     D="$TASKS/$ID"
     cleared=""
-    for f in design.md boundary.md diff-summary.md verdict.md gate-report.md; do
+    for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations; do
       if [ -f "$D/$f" ]; then
         rm -f "$D/$f"
         cleared="$cleared $f"
