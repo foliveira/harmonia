@@ -200,6 +200,53 @@ has() { # has <role> <tool> -> 0 when the role declares EXACTLY that name (not a
   grep -qF 'seam=design' "$REPO_ROOT/core/charters/planner.md"
 }
 
+@test "blind spot discovery: the scoper dispatches the lens and the lens names its target" {
+  # Mirrors how the adversarial upstream mode is pinned above - dispatching seat
+  # names the lens, lens names its target - rather than asserting triggers:/auto:
+  # frontmatter, which would have no reader: every lens consumer reads only the
+  # lenses a stage names in core/lifecycle.yaml, and no stage names this one.
+  #
+  # The three tokens must co-occur on ONE line. scoper.md ALREADY carries
+  # `falsification.md` in its adversarial clause, so a whole-file grep would pass
+  # on the strength of an unrelated paragraph. Charter paragraphs are single
+  # physical lines here, so co-occurrence pins the dispatch to one real clause.
+  s="$REPO_ROOT/core/charters/scoper.md"
+  grep -i 'blindspot' "$s" | grep -F 'falsification.md' | grep -qF 'seam=blindspot'
+  b="$REPO_ROOT/core/lenses/blindspot.md"
+  [ -f "$b" ]
+  grep -qF 'scope.md' "$b"           # the lens names the artifact a finding must move
+  grep -qF 'falsification.md' "$b"   # ...and the existing log it records into, not a second one
+}
+
+@test "blind spot record grammar: the seam tag, the per-dispatch denominator, and both dispositions" {
+  # Anchored prefixes only, not the rationale sentences (2026-07-12: state the
+  # guard once, pin behaviour rather than phrasing - the single-line rule and its
+  # anti-forgery reason live once in adversarial.md and are referenced, not
+  # restated). The denominator line is what makes a zero-finding dispatch
+  # countable, so it is pinned whole rather than as two loose fragments.
+  b="$REPO_ROOT/core/lenses/blindspot.md"
+  [ -f "$b" ] || { echo "core/lenses/blindspot.md does not exist"; false; }
+  grep -qF 'seam=blindspot dispatched: findings=' "$b"
+  grep -qF 'seam=blindspot accepted:' "$b"
+  grep -qF 'seam=blindspot rejected:' "$b"
+}
+
+@test "every lens file is introduced in the README roster section" {
+  # GREEN ON ARRIVAL, and correctly so. This mirrors criterion 22, which is
+  # self-activating: it short-circuits while core/lenses/ holds four files and
+  # binds the moment a fifth lands. A conditional guard cannot be red before its
+  # condition exists - that is the shape, not a gap in the round.
+  #
+  # Generalised over the directory rather than grepping the literal `blindspot`,
+  # so it guards every future lens and pins the behaviour (the README introduces
+  # what the directory holds) rather than one sentence's wording. -F and -- per
+  # the leading-dash learning: a basename is data here, never a pattern.
+  for f in "$REPO_ROOT"/core/lenses/*.md; do
+    l="$(basename "$f" .md)"
+    grep -qiF -- "$l" "$REPO_ROOT/README.md" || { echo "lens '$l' is not named in README.md"; false; }
+  done
+}
+
 @test "panel.md exists and names the synthesis step" {
   f="$REPO_ROOT/core/patterns/panel.md"
   [ -f "$f" ]
