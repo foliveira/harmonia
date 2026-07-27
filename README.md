@@ -121,7 +121,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/bin/memory/recall.sh
 
 ideator · scoper · planner · implementer · test engineer · reviewer (review lead) · simplifier · knowledge curator · committer · documentation producer · documentation reviewer · rubber duck
 
-Charters live in `core/charters/` (the portable truth); `agents/` are thin Claude Code wrappers. Review lenses (adversarial, security, performance, regression) are dispatchable prompt assets in `core/lenses/` — the security lens auto-fires on auth, secrets, input parsing, and network-facing diffs; the regression lens auto-fires on marker, base-ref, receipt, and shell-quoting diffs, checking the diff against both learning tiers read directly.
+Charters live in `core/charters/` (the portable truth); `agents/` are thin Claude Code wrappers. Review lenses (adversarial, security, performance, regression) are dispatchable prompt assets in `core/lenses/` — the security lens auto-fires on auth, secrets, input parsing, and network-facing diffs; the regression lens auto-fires on marker, base-ref, receipt, and shell-quoting diffs, checking the diff against both learning tiers read directly. A fifth file in that directory, `core/lenses/blindspot.md`, is not a review lens: the scoper dispatches it once per task at first scope mint, to surface unknowns before the boundary is drawn.
 
 ## Developing the engine
 

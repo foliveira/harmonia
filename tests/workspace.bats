@@ -2,7 +2,7 @@
 # Behavioral tests for `workspace.sh clear-span` (F3/item A). Unlike
 # lifecycle-runner.bats (which greps runner prose), these run the REAL
 # bin/workspace.sh against a scratch workspace under $BATS_TEST_TMPDIR and
-# assert what it removes, preserves, and reports - the five-file list and
+# assert what it removes, preserves, and reports - the six-file list and
 # path-confinement now live in shell a test exercises, not runner prose.
 # No git needed for clear-span/pick (they touch no git). Conventions follow
 # coverage.bats (REPO_ROOT from $BATS_TEST_FILENAME, scratch under TMPDIR).
@@ -20,11 +20,15 @@ setup() {
   mkdir -p "$R/.harmonia/tasks"
 }
 
-# fabricate a workspace: 5 span out-artifacts + every survivor the scope lists
+# fabricate a workspace: 6 span out-artifacts + every survivor the scope lists.
+# `violations` joins the span set once lifecycle.yaml declares it an implement
+# out-artifact: review FAILS on the record's presence (skills/review/SKILL.md),
+# so a stale one from a prior run would fail the next run for something that
+# did not happen. It has no extension, matching the file workspace.sh writes.
 seed_ws() {
   local id="$1" d="$R/.harmonia/tasks/$1"
   mkdir -p "$d/receipts"
-  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md \
+  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations \
            scope.md ideas.md accepted done minted base-ref; do : > "$d/$f"; done
   : > "$d/receipts/check-criteria.json"    # a receipt must survive (the .git-incident guard)
 }
@@ -36,7 +40,7 @@ seed_ws() {
 seed_incomplete() {
   local id="$1" d="$R/.harmonia/tasks/$1"
   mkdir -p "$d/receipts"
-  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md \
+  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations \
            scope.md ideas.md minted base-ref; do : > "$d/$f"; done
   : > "$d/receipts/check-criteria.json"
 }
@@ -55,19 +59,20 @@ git_ws() {
   bash "$WS_SH" mint --repo "$G" --slug rej
 }
 
-@test "clear-span removes the five span out-artifacts and preserves everything else" {
+@test "clear-span removes the six span out-artifacts and preserves everything else" {
   # criterion 1: removes design.md/boundary.md/diff-summary.md/verdict.md/
-  # gate-report.md; preserves scope.md/ideas.md/accepted/done/minted/base-ref
-  # and the whole receipts/ dir; reports what it cleared. --task addresses the
-  # seeded (done-marked) workspace, which pick reaches by id regardless of done.
+  # gate-report.md/violations; preserves scope.md/ideas.md/accepted/done/minted/
+  # base-ref and the whole receipts/ dir; reports what it cleared. --task addresses
+  # the seeded (done-marked) workspace, which pick reaches by id regardless of done.
   seed_ws 2026-07-05-demo
   run bash "$WS_SH" clear-span --repo "$R" --task 2026-07-05-demo
   [ "$status" -eq 0 ]
   d="$R/.harmonia/tasks/2026-07-05-demo"
-  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md; do [ ! -f "$d/$f" ]; done
+  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations; do [ ! -f "$d/$f" ]; done
   for f in scope.md ideas.md accepted done minted base-ref; do [ -f "$d/$f" ]; done
   [ -f "$d/receipts/check-criteria.json" ]     # receipts/ untouched
   [[ "$output" == *"design.md"* ]]             # reports what it cleared
+  [[ "$output" == *"violations"* ]]            # ...including the newest member, so it cannot be deleted silently
 }
 
 @test "clear-span is idempotent: a second run clears nothing and exits 0" {
@@ -122,13 +127,13 @@ git_ws() {
 
 @test "clear-span resolves the single incomplete workspace with no --task (runner path)" {
   # F-B: the flow runner calls `clear-span --repo .` with NO --task; pick's
-  # single-incomplete branch must resolve it, clear the five, and keep scope.md.
+  # single-incomplete branch must resolve it, clear the six, and keep scope.md.
   # seed_incomplete omits the done marker so incomplete() actually reaches it.
   seed_incomplete 2026-07-05-live
   run bash "$WS_SH" clear-span --repo "$R"
   [ "$status" -eq 0 ]
   d="$R/.harmonia/tasks/2026-07-05-live"
-  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md; do [ ! -f "$d/$f" ]; done
+  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations; do [ ! -f "$d/$f" ]; done
   [ -f "$d/scope.md" ]                 # the pinned input survives
   [[ "$output" == *"design.md"* ]]     # reports what it cleared
 }

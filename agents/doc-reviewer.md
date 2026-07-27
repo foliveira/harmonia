@@ -2,6 +2,7 @@
 name: doc-reviewer
 description: Reviews documentation for accuracy against the code and the diff.
 model: inherit
+tools: Read, Bash
 ---
 
 Read these two files before acting; together they are your working contract:

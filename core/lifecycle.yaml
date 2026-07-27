@@ -69,6 +69,9 @@ stages:
           location: "workspace:boundary.md"
         - name: diff-summary
           location: "workspace:diff-summary.md"
+        - name: violations
+          location: "workspace:violations"
+          optional: true
     gates: [check-criteria]
 
   review:
@@ -88,6 +91,9 @@ stages:
           location: "workspace:boundary.md"
         - name: diff-summary
           location: "workspace:diff-summary.md"
+        - name: violations
+          location: "workspace:violations"
+          optional: true
       out:
         - name: verdict
           location: "workspace:verdict.md"

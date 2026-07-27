@@ -2,6 +2,7 @@
 name: reviewer
 description: Review lead: chairs the panel, dispatches lenses, audits gates and receipts, writes one verdict.
 model: inherit
+tools: Read, Write, Bash, Agent
 ---
 
 Read these two files before acting; together they are your working contract:

@@ -2,6 +2,7 @@
 name: knowledge-curator
 description: Classifies and captures learnings into the right memory tier.
 model: inherit
+tools: Read, Bash
 ---
 
 Read these two files before acting; together they are your working contract:

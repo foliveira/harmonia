@@ -2,6 +2,7 @@
 name: simplifier
 description: Challenges every abstraction and line that does not earn its keep.
 model: inherit
+tools: Read, Bash
 ---
 
 Read these two files before acting; together they are your working contract:
