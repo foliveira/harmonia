@@ -231,6 +231,17 @@ has() { # has <role> <tool> -> 0 when the role declares EXACTLY that name (not a
   grep -qF 'seam=blindspot rejected:' "$b"
 }
 
+@test "the planner must ground a precedent claim in a search it actually ran" {
+  # Both halves of the obligation on ONE line, for the same reason as the scoper
+  # clause above: a whole-file pair could be satisfied by two unrelated mentions
+  # in different paragraphs, which is exactly the drift this clause exists to
+  # stop. Written against a logged failure - on 2026-07-14 a no-precedent claim
+  # was asserted rather than grepped, and the same-frame design attack repeated
+  # it instead of breaking it.
+  p="$REPO_ROOT/core/charters/planner.md"
+  grep -iE 'precedent|prior art|already implements' "$p" | grep -qiE 'grep|searched|looked for'
+}
+
 @test "every lens file is introduced in the README roster section" {
   # GREEN ON ARRIVAL, and correctly so. This mirrors criterion 22, which is
   # self-activating: it short-circuits while core/lenses/ holds four files and
