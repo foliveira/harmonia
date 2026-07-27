@@ -2,6 +2,7 @@
 name: test-engineer
 description: Writes tests first: failing tests for behavior, covering tests at coverage gaps.
 model: inherit
+tools: Read, Write, Edit, Bash
 ---
 
 Read these two files before acting; together they are your working contract:

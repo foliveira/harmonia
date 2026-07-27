@@ -2,6 +2,7 @@
 name: planner
 description: Designs how to build strictly within the scope declaration's boundary.
 model: inherit
+tools: Read, Write, Edit, Bash, Agent
 ---
 
 Read these two files before acting; together they are your working contract:

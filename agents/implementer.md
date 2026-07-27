@@ -2,6 +2,7 @@
 name: implementer
 description: Builds the design, making failing tests pass without ever editing tests.
 model: inherit
+tools: Read, Write, Edit, Bash
 ---
 
 Read these two files before acting; together they are your working contract:

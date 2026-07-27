@@ -2,6 +2,7 @@
 name: ideator
 description: Generates and evaluates divergent directions before Harmonia commits to one.
 model: inherit
+tools: Read, Write, Bash, Agent, WebFetch, WebSearch
 ---
 
 Read these two files before acting; together they are your working contract:

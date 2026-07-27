@@ -2,6 +2,7 @@
 name: scoper
 description: Pins a task's scope: goal, boundaries, non-goals, and machine-checkable success criteria.
 model: inherit
+tools: Read, Write, Edit, Bash, Agent, WebFetch, WebSearch
 ---
 
 Read these two files before acting; together they are your working contract:

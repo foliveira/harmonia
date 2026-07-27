@@ -2,6 +2,8 @@
 # U3 roster tests - parity, frontmatter contracts, body guards, consume/produce closure.
 
 ROLES="ideator scoper planner implementer test-engineer reviewer simplifier knowledge-curator committer doc-producer doc-reviewer rubber-duck"
+DISPATCHERS="scoper planner reviewer ideator"   # the four whose charters spawn subagents
+SURVEY="scoper ideator"                         # the two that survey source material before a direction is fixed
 
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -9,6 +11,20 @@ setup() {
 
 fm() { # fm <file> <key> -> frontmatter value
   awk -v k="$2" 'BEGIN{inf=0} /^---$/{inf++; next} inf==1 && $1==k":" {sub("^"k": *",""); print; exit}' "$1"
+}
+
+tools_of() { # tools_of <role> -> the role's declared tool names, one per line, ENDS trimmed only
+  # Trim the ends, never the middle. An earlier `s/[[:space:]]//g` squeezed
+  # internal space too, so `Web Fetch` normalised to `WebFetch` and certified
+  # clean while the harness - which reads the literal frontmatter text - saw an
+  # unregistered name and silently dropped it. With two two-word names in the
+  # registered set, the internal-space typo is the likeliest shape there is, and
+  # it was the one shape this reader could not see.
+  fm "$REPO_ROOT/agents/$1.md" tools | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d'
+}
+
+has() { # has <role> <tool> -> 0 when the role declares EXACTLY that name (not a substring)
+  tools_of "$1" | grep -qxF -- "$2"
 }
 
 @test "exactly twelve charters and twelve agents, names 1:1" {
@@ -37,6 +53,64 @@ fm() { # fm <file> <key> -> frontmatter value
     [ -n "$(fm "$f" description)" ]
     m="$(fm "$f" model)"
     [[ "$m" =~ ^(haiku|sonnet|opus|inherit)$ ]]
+  done
+}
+
+@test "every agent declares a frontmatter tools: manifest of registered names, each carrying Read and Bash" {
+  # An omitted tools: key inherits the harness's ENTIRE tool manifest on every
+  # spawn - measured at 6.4-7.5k of the ~15-16.6k tokens a spawn costs before
+  # doing any work - so the key's presence is the point of the slice.
+  #
+  # Three properties, none of which a raw `grep '^tools: '` would give:
+  #   - FRONTMATTER, not body: fm() reads only between the two `---` lines, so a
+  #     body line the harness never parses cannot satisfy this.
+  #   - EXACT names, from the seven this harness registers. Grep, Glob and Task
+  #     are NOT registered here (search is a Bash capability), and an
+  #     unresolvable name is silently DROPPED at spawn rather than refused - the
+  #     seat launches missing a capability it was written to have, and nothing
+  #     at runtime notices. This test is the only thing that does. Exact
+  #     matching also rejects the two shapes shipped plugins use that would not
+  #     work here: the JSON-array form `tools: ["Read", "Write"]` and the
+  #     `Agent(pkg:type)` spawn-scoping form.
+  #   - Read and Bash on every seat: the wrapper body orders two file reads and
+  #     a bin/memory/recall.sh run, so no seat can go below those two.
+  registered=" Read Write Edit Bash Agent WebFetch WebSearch "
+  for r in $ROLES; do
+    t="$(tools_of "$r")"
+    [ -n "$t" ] || { echo "$r declares no frontmatter tools: line - it inherits the whole manifest"; false; }
+    for name in $t; do
+      [[ "$registered" == *" $name "* ]] || { echo "$r declares '$name', which this harness does not register - it is silently dropped"; false; }
+    done
+    has "$r" Read || { echo "$r cannot read its charter: no Read"; false; }
+    has "$r" Bash || { echo "$r cannot run recall.sh or search: no Bash"; false; }
+  done
+}
+
+@test "the four dispatchers declare Agent, and only the two survey seats declare the web pair" {
+  # Restriction here is soft except ONCE. A seat without Write can heredoc
+  # through Bash, a seat without a search tool runs grep, and - measured, not
+  # assumed - a web-free seat still reaches the network by running curl through
+  # Bash. So the web pair is a declared confinement, not an enforced denial.
+  # Agent is the one hard denial: nothing available in Bash spawns a subagent.
+  #
+  # The pair is pinned anyway, on the contract and on this: confining it to the
+  # two survey seats is what makes a single line pasted across all twelve
+  # structurally impossible - one shared value either carries the pair
+  # everywhere (breaching the ceiling below) or nowhere (breaching the floor
+  # above). The non-survey set is DERIVED from $ROLES rather than restated, so a
+  # seat added to the roster is held web-free by default rather than by an
+  # edit nobody remembers to make.
+  for r in $DISPATCHERS; do
+    has "$r" Agent || { echo "$r dispatches subagents per its charter but declares no Agent"; false; }
+  done
+  for r in $SURVEY; do
+    has "$r" WebFetch || { echo "$r surveys source material but declares no WebFetch"; false; }
+    has "$r" WebSearch || { echo "$r surveys source material but declares no WebSearch"; false; }
+  done
+  for r in $ROLES; do
+    case " $SURVEY " in *" $r "*) continue ;; esac
+    ! has "$r" WebFetch || { echo "$r is held web-free but declares WebFetch"; false; }
+    ! has "$r" WebSearch || { echo "$r is held web-free but declares WebSearch"; false; }
   done
 }
 

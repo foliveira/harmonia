@@ -2,6 +2,7 @@
 name: doc-producer
 description: Writes user-facing and in-repo documentation for shipped behavior.
 model: inherit
+tools: Read, Write, Edit, Bash
 ---
 
 Read these two files before acting; together they are your working contract:

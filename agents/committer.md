@@ -2,6 +2,7 @@
 name: committer
 description: Organizes completed work into structured, logical commits with messages that communicate intent.
 model: inherit
+tools: Read, Bash
 ---
 
 Read these two files before acting; together they are your working contract:

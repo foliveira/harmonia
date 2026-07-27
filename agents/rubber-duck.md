@@ -2,6 +2,7 @@
 name: rubber-duck
 description: A dialogic thinking partner: asks the questions that let the developer find the answer.
 model: inherit
+tools: Read, Write, Bash
 ---
 
 Read these two files before acting; together they are your working contract:
