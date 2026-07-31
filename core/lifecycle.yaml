@@ -99,7 +99,7 @@ stages:
           location: "workspace:verdict.md"
         - name: gate-report
           location: "workspace:gate-report.md"
-    gates: [coverage, receipts]
+    gates: [coverage, criteria-run, receipts]
 
   capture:
     purpose: Record learnings, then ship structured commits.

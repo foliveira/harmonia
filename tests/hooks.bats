@@ -381,6 +381,21 @@ EOF
   [[ "$output" == *"1 of 2"* ]]
 }
 
+@test "the quick lane's gates list does not name the criteria-run gate" {
+  # The two `gates: [coverage, receipts]` lines in core/lifecycle.yaml are
+  # byte-identical (review at :102, quick at :142), so a global replace that
+  # widens the review stage silently widens the quick lane too - a named non-goal:
+  # quick declares `artifacts.in: []`, has no scope.md, and so has no criteria set
+  # to run. Extract the quick stage's OWN gates line and require it non-empty
+  # first, so a renamed stage cannot satisfy this vacuously. Lives here rather
+  # than in core.bats, which holds no gates/quick assertion for the wiring to
+  # move; the review-side half of this pin is the scope's own criterion 7 and is
+  # deliberately not promoted into the suite.
+  q="$(awk '/^  quick:/{f=1} f&&/^    gates:/{print; exit}' "$REPO_ROOT/core/lifecycle.yaml")"
+  [ -n "$q" ]
+  ! grep -qi criteri <<<"$q"
+}
+
 # --- the two blockers the round-1 review verdict named -----------------------
 # Both are reproduced end to end in that verdict's `## Blocking` section and both
 # live in the run mode's receipt handling. Same fixture hygiene as the block

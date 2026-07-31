@@ -105,7 +105,7 @@ Six commands act on a task outside the lifecycle stages: they record your decisi
 
 ## The gates
 
-- **Criteria** — implement refuses to start until the scope declaration carries machine-checkable `- run:` criteria.
+- **Criteria** — implement refuses to start until the scope declaration carries machine-checkable `- run:` criteria; at review the `criteria-run` gate executes every one of them from the repo root, echoes the whole set it ran, and fails the review if any criterion fails.
 - **Coverage** — 100% line (and branch, where the format measures it) on changed code, soft block. Exemptions are in-code markers with a mandatory justification (`// harmonia:exempt <why>`), surfaced to the reviewer in the gate report's exemptions-honored section. Overrides append to a versioned audit log at `.harmonia/coverage-exemptions.yaml`. Unsupported languages exit as advisory cannot-measure, never a false pass.
 - **Receipts** — every gate run writes a receipt (task id, timestamp, diff digest); review fails work whose receipts are missing or stale, and a test-immutability hash violation is treated the same way.
 

@@ -136,7 +136,7 @@
         },
         "gates": {
           "type": "array",
-          "items": { "enum": ["check-criteria", "coverage", "receipts"] }
+          "items": { "enum": ["check-criteria", "coverage", "criteria-run", "receipts"] }
         },
         "loop": { "type": "object" },
         "review": { "type": "object" }
