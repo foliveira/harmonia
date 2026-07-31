@@ -79,7 +79,7 @@ if [ "$VERIFY" -eq 1 ]; then
     # check-criteria validates scope.md (code-independent) but its receipt hashes
     # the diff at implement-start on a clean tree, so its digest goes code-stale
     # the moment implement writes code. Validate it by status, not freshness.
-    if [ "$(jq -r '.gate // empty' "$r")" = "check-criteria" ]; then
+    if [ "$(jq -r '.gate // empty' "$r")" = "check-criteria" ]; then  # The waiver keys on this gate NAME, not on the script: the same script's review-time `--run` receipt (gate "criteria-run") is code-dependent and takes the freshness path below.
       if [ "$(jq -r '.status // empty' "$r")" != "pass" ]; then echo "gate: receipt $(basename "$r") did not pass (status not pass)"; bad=1; fi
       continue
     fi
