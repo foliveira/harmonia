@@ -22,6 +22,20 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$WS" ] || { echo "check-criteria: --workspace is required" >&2; exit 1; }
+# --repo names a path and both its consumers must resolve it as one. The `cd` in
+# the run loop reads a dash-leading value as an option instead - `-P`, `-L` and
+# `--` land in $HOME, `-` in OLDPWD - so criteria execute outside the named tree
+# and report OK over a red one, while `git -C` fails and the receipt carries the
+# sha256 of the empty string under `status: pass`. Both lines are needed and
+# neither of them is `cd --`: `[ -d ]` resolves the value as a path, so the
+# sibling forms go too (a nonexistent path, a regular file, and "", which `cd`
+# takes without moving); the `./` prefix is what stops `cd` re-reading a
+# directory that genuinely is named `-P`; and `cd -- -` still lands in OLDPWD
+# (measured). Here rather than in the --run branch because shape mode's
+# diff_digest is the other consumer - unchecked, it receipts a clean-tree digest
+# for a repo it never looked at.
+[ -d "$REPO" ] || { echo "check-criteria: --repo '$REPO' is not a directory" >&2; exit 1; }
+case "$REPO" in -*) REPO="./$REPO" ;; esac
 
 SCOPE="$WS/scope.md"
 if [ ! -f "$SCOPE" ]; then

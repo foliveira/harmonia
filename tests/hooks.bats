@@ -481,3 +481,219 @@ EOF
   grep -qi receipt <<<"$output"                 # the run reports what went wrong instead of swallowing it
   [ -d "$WS/receipts/criteria-run.json" ]       # and reports it rather than clearing the path to force the write
 }
+
+# --- FU-13: --repo is refused before anything happens ------------------------
+# Security's S-2, reproduced end to end in the round-2 verdict and folded into
+# the scope as criterion 15. `$REPO` reaches `cd` at bin/check-criteria.sh:108
+# unvalidated, so the `cd` builtin reads a dash-leading value as an option: -P,
+# -L and -- land in $HOME, `-` lands in OLDPWD. The forms below are the four the
+# verdict measured, plus a plainly nonexistent path and a regular file - the
+# forms a dash-prefix allowlist (both) and an `[ -e ]` test (the file) let
+# through, and `[ -d ]` is false for all six (verified).
+#
+# Three tests, because the surface has three separable properties: a value that
+# is not a directory is refused (run mode, then shape mode), and - the third -
+# a criterion never executes from a cwd `--repo` did not name. The third is where
+# a path check alone leaves the hole open: `[ -d "$REPO" ]` resolves the value as
+# a PATH while an untouched `cd "$REPO"` still resolves it as an OPTION, so a
+# directory named `-P` satisfies the guard and is still eaten by `cd`. The two
+# refusal tests invoke from an empty scratch directory, so the four dash forms
+# are guaranteed to name nothing there and a correct build cannot be failed by an
+# ambient `./-P`; the third creates the directory they name and pins the
+# complement.
+#
+# The empty string is deliberately not among them: `cd ""` succeeds without
+# moving (verified), so it is the silent-fallback-to-the-gate's-own-cwd case
+# already rejected below by the execution witness, and on the current tree
+# running it would point the fixture criteria at THIS repo - the one thing the
+# fixture rule at the head of the run-mode block forbids. Same hygiene otherwise:
+# every invocation names --repo, every fixture path interpolated into a criterion
+# string is quoted there (a TMPDIR with a space otherwise fails the right build),
+# the criteria write only under BATS_TEST_TMPDIR, and none invokes the run mode.
+#
+# Wording is not asserted anywhere here. The refusal's message is the
+# implementer's; what is pinned is that nothing ran and nothing was receipted.
+
+@test "run mode refuses a --repo that is not a directory before any criterion runs" {
+  # The dangerous state this kills is not a crash - it is a PASSING run over a
+  # criterion that must be red, receipted `status: pass` with e3b0c442...b855,
+  # the sha256 of the empty string, because `git -C -P diff` fails and
+  # base-ref-lib.sh:20 discards the error. So an exit-code-only assertion is not
+  # enough: two of the six forms already exit 1 today, by failing every criterion
+  # on a broken `cd`. Two fixture criteria separate a refusal from that:
+  #   1. an execution witness on an absolute path - it fires from ANY cwd, so its
+  #      absence means not one criterion ran;
+  #   2. a criterion that is red in the fixture repo (the marker is there) and
+  #      passes vacuously anywhere else - the vacuity class S-2 names.
+  # Each wrong implementation and the assertion that kills it:
+  #   - no guard (today): -P, -L, --, - all exit 0 with `check-criteria: OK`
+  #     while the witness fires -> the status and witness assertions;
+  #   - `cd -- "$REPO"` instead of a guard: the verdict measured `cd -- -` still
+  #     succeeding into OLDPWD -> the witness; and for the forms where `cd` then
+  #     does fail, a receipt still lands about a repo the gate never entered ->
+  #     the receipt assertion, which is the only one that fires there;
+  #   - a silent fallback to the gate's own cwd -> the witness;
+  #   - a dash-prefix allowlist -> the nonexistent path and the regular file;
+  #   - an `[ -e ]` test rather than `[ -d ]` -> the regular file;
+  #   - a guard that refuses and THEN receipts -> the receipt assertion, which
+  #     requires the receipts directory itself to be absent, so the pre-loop
+  #     write cannot land either; per S-1 a `running` receipt verifies clean at
+  #     gate.sh:86-90, so leaving one behind is not harmless;
+  #   - refusing every invocation -> the control, which demands exit 1 with the
+  #     witness fired and the receipt written;
+  #   - a guard that narrows what --repo ACCEPTS -> the second control, an
+  #     ordinary directory that is no git checkout. `[ -d "$REPO/.git" ]` passes
+  #     the first control and fails that one, and it would refuse the gate inside
+  #     any git worktree, where `.git` is a file; so would an allowlist of the
+  #     literal `.`, which is the laziest build that satisfies criterion 15.
+  : > "$PROJ/hk-repo-marker"
+  cat > "$WS/scope.md" <<EOF
+## Success Criteria
+- run: touch "$WS/ran-witness"
+- run: ! test -f hk-repo-marker
+EOF
+
+  # Control: from the real repo this set exits 1 because the marker criterion is
+  # red there, and the witness fired, so `touch` passed and the failure can only
+  # be the marker. The same set exits 0 from anywhere else - that is the finding.
+  run bash "$CHECK" --run --workspace "$WS" --repo "$PROJ"
+  [ "$status" -eq 1 ]
+  [ -e "$WS/ran-witness" ]
+  [ -f "$WS/receipts/criteria-run.json" ]
+  [ "$(jq -r .status "$WS/receipts/criteria-run.json")" = "fail" ]
+
+  # Second control, the accept side: an ordinary directory that is neither a git
+  # checkout nor a Harmonia root. A consuming project points --repo at its own
+  # working tree, so the guard's job is to refuse a non-directory - not to demand
+  # git-ness, a `core/lifecycle.yaml`, or the literal `.`.
+  mkdir -p "$BATS_TEST_TMPDIR/plain"
+  rm -rf "$WS/receipts" "$WS/ran-witness"
+  run bash "$CHECK" --run --workspace "$WS" --repo "$BATS_TEST_TMPDIR/plain"
+  [ "$status" -eq 0 ]                          # accepted, and the marker criterion is green out there
+  [ -e "$WS/ran-witness" ]                     # ... because the criteria really did run from it
+  [ "$(jq -r .status "$WS/receipts/criteria-run.json")" = "pass" ]
+
+  # The refusal set runs from an empty scratch directory, so the four dash forms
+  # name nothing at all there: with a `./-P` present a correct build resolves it
+  # and this test would fail a build that is right (the ambient-name fragility).
+  # OLDPWD is passed explicitly for the same reason in the other direction - the
+  # `-` form's danger must not depend on the invoking shell's history, since with
+  # OLDPWD unset `cd -` fails and the form would go red for a shape reason.
+  mkdir -p "$BATS_TEST_TMPDIR/elsewhere" "$BATS_TEST_TMPDIR/empty-callsite"
+  for bad in -P -L -- - "/nonexistent-hk-$$-not-a-dir" "$PROJ/main.go"; do
+    echo "--repo form: $bad"
+    rm -rf "$WS/receipts" "$WS/ran-witness"
+    run bash -c "cd '$BATS_TEST_TMPDIR/empty-callsite' && env OLDPWD='$BATS_TEST_TMPDIR/elsewhere' bash '$CHECK' --run --workspace '$WS' --repo '$bad'"
+    # Exit 1, not merely non-zero: bin/check-criteria.sh:10-11 defines 3 as
+    # cannot-check and skills/review/SKILL.md:12 - the only consumer - reads it as
+    # "there was no scope declaration to run". A refusal that exits 3 tells the
+    # review lead there was nothing to execute, which is the vacuous review this
+    # gate exists to prevent, one exit code sideways.
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"check-criteria: OK"* ]]  # a red criterion must never report OK
+    [ ! -e "$WS/ran-witness" ]                 # nothing executed - not one criterion
+    [ ! -e "$WS/receipts" ]                    # and nothing was receipted, not even `running`
+  done
+}
+
+@test "shape mode refuses the same --repo forms rather than receipt a digest it never took" {
+  # The guard belongs in BOTH modes and this pins that decision instead of
+  # leaving it to wherever the fix happens to land. In shape mode `$REPO` has
+  # exactly one consumer, the receipt's diff_digest at bin/check-criteria.sh:39,
+  # and a value `git -C` cannot use makes diff_digest hash nothing - so the
+  # implement-entry gate exits 0 and writes `status: pass` carrying the
+  # empty-string digest: a clean-tree claim about a repo it never looked at,
+  # which then verifies against any genuinely clean tree (S-2 consequence 3).
+  # Rejects a guard placed inside the `--run` branch: the argument loop is shared
+  # and the fix the verdict names is one line after it. The digest assertion on
+  # the control is what makes the fixture discriminating - without a real diff in
+  # the fixture repo the honest digest IS the empty-string digest, and a refusal
+  # would be indistinguishable from a vacuous pass.
+  cat > "$WS/scope.md" <<'EOF'
+## Success Criteria
+- run: true
+EOF
+  echo more >> "$PROJ/main.go"
+  honest="$(git -C "$PROJ" diff HEAD | sha256sum | awk '{print $1}')"
+  empty="$(printf '' | sha256sum | awk '{print $1}')"
+  [ "$honest" != "$empty" ]      # the fixture can tell a real digest from "no diff at all"
+
+  run bash "$CHECK" --workspace "$WS" --repo "$PROJ"
+  [ "$status" -eq 0 ]                                                          # a real repo still passes
+  [ "$(jq -r .diff_digest "$WS/receipts/check-criteria.json")" = "$honest" ]   # over the diff it actually took
+
+  # The accept side here too: an ordinary directory, no git checkout. Its digest
+  # is not asserted - `git -C` cannot diff a non-repo either, and that is
+  # pre-existing behaviour outside this guard's job.
+  mkdir -p "$BATS_TEST_TMPDIR/plain"
+  rm -rf "$WS/receipts"
+  run bash "$CHECK" --workspace "$WS" --repo "$BATS_TEST_TMPDIR/plain"
+  [ "$status" -eq 0 ]
+  [ -f "$WS/receipts/check-criteria.json" ]     # accepted, and the shape gate still receipts
+
+  mkdir -p "$BATS_TEST_TMPDIR/empty-callsite"
+  for bad in -P -L -- - "/nonexistent-hk-$$-not-a-dir" "$PROJ/main.go"; do
+    echo "--repo form: $bad"
+    rm -rf "$WS/receipts"
+    run bash -c "cd '$BATS_TEST_TMPDIR/empty-callsite' && bash '$CHECK' --workspace '$WS' --repo '$bad'"
+    [ "$status" -eq 1 ]                        # 1, an argument error - not 3, which reads as cannot-check
+    [[ "$output" != *"check-criteria: OK"* ]]
+    [ ! -e "$WS/receipts" ]                    # no receipt, so no empty-string digest under `status: pass`
+  done
+}
+
+@test "run mode never executes a criterion from a cwd --repo did not name, dash-leading directory included" {
+  # The complement of the guard, and the hole a path check alone leaves open:
+  # `[ -d "$REPO" ]` resolves the value as a path, `cd "$REPO"` resolves it as an
+  # option first. With a directory literally named `-P` at the invocation cwd,
+  # `[ -d "-P" ]` is TRUE, the guard passes, and `cd "-P"` still lands in $HOME -
+  # producing the whole FU-13 outcome (criteria executed outside the named tree,
+  # `check-criteria: OK`, a receipt with the empty-string digest) through a build
+  # that satisfies both the guard and the scope's criterion 15.
+  #
+  # What is pinned is the safety property, not a remedy: if a criterion ran at
+  # all, it ran in the directory --repo named. Both plausible answers pass -
+  # refusing every dash-leading value, or entering the directory because it
+  # genuinely is one - and only the silent wrong-cwd landing fails. `cd --` is
+  # deliberately NOT forced: it is an incomplete remedy (measured: `cd -- -` still
+  # resolves to OLDPWD, so a build that adds only `--` still leaves the `-` form
+  # holed, and this test still fails it), while normalising a dash-leading value
+  # to `./-P` and keeping the existing `cd` is equally correct and passes.
+  #
+  # The cwd is recorded and compared rather than inferred from a vacuity pass,
+  # because which way the vacuity falls is a property of the fixture, not of the
+  # bug: criterion 15's criteria pass in $HOME, so the wrong landing there reports
+  # OK, while this fixture's marker criterion fails there and the same wrong
+  # landing reports FAIL. Same defect, opposite exit codes - the recorded cwd
+  # names it either way, and no assertion depends on what $HOME happens to hold.
+  #
+  # Shape mode has no counterpart: $REPO never reaches `cd` there, so the
+  # option-versus-path split cannot arise; its one consumer is the digest, pinned
+  # by the test above.
+  call="$BATS_TEST_TMPDIR/dashcall"
+  mkdir -p "$call" "$BATS_TEST_TMPDIR/oldpwd-target"
+  cat > "$WS/scope.md" <<EOF
+## Success Criteria
+- run: pwd -P > "$WS/cwd-witness"
+- run: test -f hk-dash-target
+EOF
+
+  for form in -P -L -- -; do
+    echo "--repo names a real directory called: $form"
+    target="$call/$form"
+    mkdir -p "$target"
+    : > "$target/hk-dash-target"
+    want="$(cd "$target" && pwd -P)"
+    rm -rf "$WS/receipts" "$WS/cwd-witness"
+    run bash -c "cd '$call' && env OLDPWD='$BATS_TEST_TMPDIR/oldpwd-target' bash '$CHECK' --run --workspace '$WS' --repo '$form'"
+    if [ -e "$WS/cwd-witness" ]; then
+      # It ran. Then it ran where --repo pointed, and nowhere else.
+      [ "$(cat "$WS/cwd-witness")" = "$want" ]
+      [ "$status" -eq 0 ]                      # ... and reported honestly: both criteria pass in there
+    else
+      # Or it refused the form outright, which is the other correct answer.
+      [ "$status" -eq 1 ]
+      [ ! -e "$WS/receipts" ]                  # receipting nothing on the way out
+    fi
+  done
+}
