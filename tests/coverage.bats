@@ -528,6 +528,171 @@ JSON
   [[ "$output" != *"coverage.json"* ]]         # ...and coverage's own `fail` is not
 }
 
+# --- receipt integrity: neither workspace write may be reported as a coverage
+# --- result ------------------------------------------------------------------
+# Both writes were unchecked. The receipt is the audit's certificate that the
+# coverage gate ran against this tree, and the report is a declared review-lead
+# input, so a write that cannot land is an I/O failure of the gate, never a
+# measurement verdict. What these pin is the claim, not a wording: a non-zero
+# exit, no success verdict, a verdict of the gate's OWN (a `gate: `-prefixed
+# line, the file's convention for everything it tells a reader - a build that
+# dies on an unbound variable exits non-zero while saying nothing), and the
+# artifact state that decides whether an audit can certify the run. The exit
+# NUMBER is deliberately unasserted: it is a documented enum in the gate's
+# header, and pinning it here would make changing it an edit to a hash-recorded
+# test. Every fixture below uses a bats-only diff, so the measurement itself is
+# status 0 and no probe can pass because coverage failed.
+
+@test "a blocked report path is not reported as a measurement, and leaves no coverage receipt" {
+  git -C "$R" checkout -q -- app.ts
+  printf '#!/usr/bin/env bats\n' > "$R/new.bats"
+  # Control first, on the same fixture: the gate measures cleanly here and leaves
+  # both artifacts. So a build that reds the blocked run for some unrelated
+  # reason reds this control too, and the pair discriminates without asserting a
+  # message the scope leaves to the implementer.
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"gate: OK"* ]]
+  [ -s "$WS/gate-report.md" ]
+  [ -s "$WS/receipts/coverage.json" ]
+  rm -f "$WS/gate-report.md" "$WS/receipts/coverage.json"
+  mkdir -p "$WS/gate-report.md"                # nothing can be written at the report path
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"gate: OK"* ]]
+  grep -q '^gate: ' <<<"$output"               # the gate stated a verdict of its own
+  [ ! -f "$WS/receipts/coverage.json" ]        # so no audit can certify this run
+  [ -d "$WS/gate-report.md" ]                  # and what was in the way stays there (bin/check-criteria.sh:71-74's policy)
+}
+
+@test "a blocked receipt path is not reported as a measurement" {
+  git -C "$R" checkout -q -- app.ts
+  printf '#!/usr/bin/env bats\n' > "$R/new.bats"
+  mkdir -p "$WS/receipts/coverage.json"        # nothing can be written at the receipt path
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"gate: OK"* ]]
+  grep -q '^gate: ' <<<"$output"
+  [ ! -f "$WS/receipts/coverage.json" ]        # still the planted directory, not a receipt
+  [ -d "$WS/receipts/coverage.json" ]
+}
+
+# The three states where the write does NOT fail at open, which is the realistic
+# trigger and the one a check on the writing command's status cannot see. They
+# belong in the suite rather than only in this task's criteria because
+# `.harmonia/tasks/` is gitignored: the criteria stop being runnable the day the
+# task closes, and these two suites are then the only durable guard.
+#
+# Each REFUSES rather than skipping when its fixture cannot express the failure -
+# a runner who can write the unwritable file (root), a /dev/full that is absent
+# or accepts writes, a $TMPDIR that will not hold a symlink. A fixture that
+# silently degenerates into a weaker probe passes every build it exists to kill,
+# which is measured history on this seam, not a hypothetical.
+#
+# The report tests assert a DISJUNCTION - either the gate refused and this run
+# left no receipt, or it printed `gate: OK` and a regular non-empty report is at
+# the declared path with its receipt. That is what keeps them property-shaped and
+# admits a write-to-a-part-file-then-rename shape, which lands a complete report
+# through a blocked path and which a refusal-only assertion would wrongly red.
+
+@test "a report write that lands no bytes is not reported as a measurement" {
+  git -C "$R" checkout -q -- app.ts
+  printf '#!/usr/bin/env bats\n' > "$R/new.bats"
+  : > "$WS/gate-report.md"                     # the end state of a create that succeeded and a first write that failed
+  chmod a-w "$WS/gate-report.md"
+  if printf x 2>/dev/null > "$WS/gate-report.md"; then
+    chmod u+w "$WS/gate-report.md"
+    echo "fixture unusable: the read-only report path accepted a write" >&2
+    return 1
+  fi
+  [ ! -s "$WS/gate-report.md" ]                # and it is still the 0-byte file the gate must refuse
+  rm -f "$WS/receipts/coverage.json"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  chmod u+w "$WS/gate-report.md"
+  if [[ "$output" == *"gate: OK"* ]]; then
+    [ "$status" -eq 0 ]
+    [ -f "$WS/gate-report.md" ]
+    [ -s "$WS/gate-report.md" ]
+    [ -s "$WS/receipts/coverage.json" ]
+  else
+    [ "$status" -ne 0 ]
+    grep -q '^gate: ' <<<"$output"
+    [ ! -f "$WS/receipts/coverage.json" ]
+  fi
+}
+
+@test "a report write that lands nowhere is not reported as a measurement" {
+  git -C "$R" checkout -q -- app.ts
+  printf '#!/usr/bin/env bats\n' > "$R/new.bats"
+  # /dev/full accepts the OPEN and fails every write, so `{ ...; } > it` exits 0
+  # while nothing was written - the state that makes the writing command's own
+  # status useless and a check on the result on disk the only honest one.
+  [ -c /dev/full ] || { echo "fixture unusable: /dev/full is not a character device" >&2; return 1; }
+  : > /dev/full 2>/dev/null || { echo "fixture unusable: /dev/full cannot be opened for writing" >&2; return 1; }
+  if printf x 2>/dev/null > /dev/full; then
+    echo "fixture unusable: /dev/full accepted a write" >&2
+    return 1
+  fi
+  rm -f "$WS/gate-report.md" "$WS/receipts/coverage.json"
+  ln -s /dev/full "$WS/gate-report.md" || { echo "fixture unusable: cannot symlink the report path" >&2; return 1; }
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  if [[ "$output" == *"gate: OK"* ]]; then
+    [ "$status" -eq 0 ]
+    [ -f "$WS/gate-report.md" ]
+    [ -s "$WS/gate-report.md" ]
+    [ -s "$WS/receipts/coverage.json" ]
+  else
+    [ "$status" -ne 0 ]
+    grep -q '^gate: ' <<<"$output"
+    [ ! -f "$WS/receipts/coverage.json" ]
+  fi
+}
+
+# The receipt's two halves, one test each, because they fail for different
+# reasons and a build can close one and leave the other open.
+
+@test "a receipt write that fails over an existing receipt is not reported as a measurement" {
+  git -C "$R" checkout -q -- app.ts
+  printf '#!/usr/bin/env bats\n' > "$R/new.bats"
+  # A previous round's receipt, unwritable: the open fails and leaves a non-empty
+  # regular file, so no file test can tell it from a receipt this run wrote. Only
+  # the writer's own status sees it.
+  cat > "$WS/receipts/coverage.json" <<'JSON'
+{ "gate": "coverage", "task_id": "PLANTED", "timestamp": "2026-07-30T00:00:00Z", "diff_digest": "planted", "status": "pass" }
+JSON
+  chmod a-w "$WS/receipts/coverage.json"
+  if printf x 2>/dev/null > "$WS/receipts/coverage.json"; then
+    chmod u+w "$WS/receipts/coverage.json"
+    echo "fixture unusable: the read-only receipt path accepted a write" >&2
+    return 1
+  fi
+  [ "$(jq -r .task_id "$WS/receipts/coverage.json")" = "PLANTED" ]   # the fixture really is a foreign receipt
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  chmod u+w "$WS/receipts/coverage.json"
+  if [[ "$output" == *"gate: OK"* ]]; then
+    [ "$(jq -r .task_id "$WS/receipts/coverage.json")" != "PLANTED" ]   # then it really is this run's receipt
+  else
+    [ "$status" -ne 0 ]
+    grep -q '^gate: ' <<<"$output"
+  fi
+}
+
+@test "a receipt write that lands nothing at the path is not reported as a measurement" {
+  git -C "$R" checkout -q -- app.ts
+  printf '#!/usr/bin/env bats\n' > "$R/new.bats"
+  # The other half of the same claim: a write that SUCCEEDS into a discard device
+  # leaves nothing at the path, which the writer's status cannot see and a file
+  # test can.
+  rm -f "$WS/receipts/coverage.json"
+  ln -s /dev/null "$WS/receipts/coverage.json" || { echo "fixture unusable: cannot symlink the receipt path" >&2; return 1; }
+  printf x > "$WS/receipts/coverage.json" || { echo "fixture unusable: the discard path refused a write" >&2; return 1; }
+  [ ! -f "$WS/receipts/coverage.json" ] || { echo "fixture unusable: a regular file landed at the discard path" >&2; return 1; }
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"gate: OK"* ]]
+  grep -q '^gate: ' <<<"$output"
+}
+
 # --- receipt integrity: the accept side of the criteria-run read --------------
 # Every receipt probe above is a refusal. The state review actually READS on each
 # round that PASSES is the one none of them reaches: a fresh coverage receipt

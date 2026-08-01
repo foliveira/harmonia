@@ -9,7 +9,8 @@
 #   gate.sh --verify-receipts --workspace WS [--repo R] [--base REF]
 #
 # Exit: 0 pass | 1 uncovered changed lines (soft block) | 2 marker without
-# justification | 4 cannot measure (unsupported language or missing tool).
+# justification | 3 a workspace write did not land (I/O failure, not a coverage
+# result) | 4 cannot measure (unsupported language or missing tool).
 set -u
 
 REPO="." BASE="HEAD" BASE_GIVEN=0 WS="" REPORT="" LANG_FORCE="" NO_BRANCH=0 SELF=0
@@ -316,6 +317,16 @@ if [ -n "$WS" ]; then
     fi
     [ -n "$YAML_NOTE" ] && { echo; echo "## YAML"; echo "- $YAML_NOTE"; }
   } > "$WS/gate-report.md"
+  # The report is judged by its RESULT on disk, because the status of the command
+  # that wrote it is unusable: a brace group returns its LAST command's status (the
+  # yaml-note test, false on any diff carrying no yaml) and `{ ...; } > /dev/full`
+  # exits 0 while every write inside it failed. -f rejects a non-file planted at the
+  # path, -s a create that landed no bytes. What no file test can see is an open that
+  # failed over an EXISTING report, leaving the previous round's bytes there.
+  if [ ! -f "$WS/gate-report.md" ] || [ ! -s "$WS/gate-report.md" ]; then
+    echo "gate: FAIL - report did not land at $WS/gate-report.md (I/O failure, not a coverage result)"
+    exit 3
+  fi
   TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   st="pass"; [ "$STATUS" -ne 0 ] && st="fail"
   cat > "$WS/receipts/coverage.json" <<EOF
@@ -327,6 +338,17 @@ if [ -n "$WS" ]; then
   "status": "$st"
 }
 EOF
+  wrote=$?  # cat's own status, usable where the report group's is not: it is what catches an open that failed over an existing receipt
+  # The receipt is the audit's certificate that the coverage gate ran against this
+  # tree, so it goes down only after the report it points at is on disk, and both
+  # halves of "did it land" are asked: the writer's status catches a write that never
+  # happened, the file tests catch one that "succeeded" into a device or a non-file.
+  # The mkdir above needs no check of its own - a receipts path that is not a usable
+  # directory reappears here as a receipt that did not land.
+  if [ "$wrote" -ne 0 ] || [ ! -f "$WS/receipts/coverage.json" ] || [ ! -s "$WS/receipts/coverage.json" ]; then
+    echo "gate: FAIL - receipt did not land at $WS/receipts/coverage.json (I/O failure, not a coverage result)"
+    exit 3
+  fi
 fi
 
 # ---------- stdout summary ----------
