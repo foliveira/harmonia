@@ -449,3 +449,148 @@ YAML
   [ "$status" -eq 4 ]
   [[ "$output" == *"cannot measure"* ]]
 }
+
+# --- receipt integrity: the audit must name the coverage gate -----------------
+# The vacuity guard COUNTED receipts that took the digest-freshness path, and
+# criteria-run.json is code-dependent and fresh by construction, so it satisfied
+# that count on its own and the audit certified a tree nothing had measured. The
+# state the lifecycle actually produces holds TWO receipts - the shape gate
+# writes check-criteria.json at implement-start, long before review's coverage
+# gate runs - so a refusal keyed on "the receipts dir holds at most one file"
+# would satisfy a one-receipt probe while leaving the defect live. This is that
+# pair, with no coverage receipt in it.
+
+@test "verify-receipts refuses the wired receipt pair when no coverage receipt is present" {
+  d="$(git -C "$R" diff "$BASE" | sha256sum | awk '{print $1}')"   # setup() drifted app.ts, so the digest is content-bearing
+  cat > "$WS/receipts/criteria-run.json" <<JSON
+{ "gate": "criteria-run", "task_id": "2026-07-02-covfix", "timestamp": "2026-07-31T00:00:00Z", "diff_digest": "$d", "status": "pass" }
+JSON
+  cat > "$WS/receipts/check-criteria.json" <<'JSON'
+{ "gate": "check-criteria", "task_id": "2026-07-02-covfix", "timestamp": "2026-07-31T00:00:00Z", "diff_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "status": "pass" }
+JSON
+  [ ! -f "$WS/receipts/coverage.json" ]        # the fixture IS the no-coverage-receipt state
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --verify-receipts
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no code-dependent receipt"* ]]
+  [[ "$output" != *"receipts verified"* ]]
+  # Staleness must not be the reason: the loop returns on a stale digest BEFORE
+  # the vacuity guard, so an exit-code-only assertion would be right for the
+  # wrong reason the day this fixture's digest drifts.
+  [[ "$output" != *"stale"* ]]
+}
+
+# The same refusal in the singleton state, which is the state the defect was
+# measured in: a receipts directory holding nothing but a fresh criteria-run.json
+# answered `gate: receipts verified` exit 0. The pair above does not cover it - a
+# build that refuses only once it has SEEN a check-criteria receipt passes the
+# pair and still certifies this (measured) - and the two together leave no room
+# to key the refusal on anything but the coverage receipt's own absence.
+@test "verify-receipts refuses a receipts dir holding only a fresh criteria-run receipt" {
+  d="$(git -C "$R" diff "$BASE" | sha256sum | awk '{print $1}')"
+  cat > "$WS/receipts/criteria-run.json" <<JSON
+{ "gate": "criteria-run", "task_id": "2026-07-02-covfix", "timestamp": "2026-07-31T00:00:00Z", "diff_digest": "$d", "status": "pass" }
+JSON
+  [ "$(ls -1 "$WS"/receipts/*.json | wc -l)" -eq 1 ]   # the fixture really is the singleton
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --verify-receipts
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no code-dependent receipt"* ]]
+  [[ "$output" != *"receipts verified"* ]]
+  [[ "$output" != *"stale"* ]]
+}
+
+# criteria-run's exit code is the gate; its receipt only witnesses freshness. A
+# `fail` there means the criteria ran and lost, which no audit may certify. The
+# coverage receipt beside it reports `fail` too - write_ts_cov leaves lines 4 and
+# 5 uncovered, so the measurement soft-blocks - and that must NOT be why this
+# refuses: reading coverage's status would harden the soft block into a verify
+# failure and route the advisory cannot-measure case (which also receipts `fail`)
+# there with it.
+@test "verify-receipts refuses a criteria-run receipt reporting fail, and still reads no coverage status" {
+  write_ts_cov
+  bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --report "$R/cov.xml" --lang ts --no-branch >/dev/null || true
+  # The coverage receipt has to be a genuine one, so the measurement must have run:
+  # with diff-cover absent the gate exits 4 before the write block and this refuses
+  # rather than quietly becoming a test about a hand-written receipt.
+  if [ ! -f "$WS/receipts/coverage.json" ]; then
+    echo "fixture unusable: the gate wrote no coverage receipt (is diff-cover installed?)" >&2
+    return 1
+  fi
+  [ "$(jq -r .status "$WS/receipts/coverage.json")" = "fail" ]   # the fixture really is the soft-blocked state
+  d="$(git -C "$R" diff "$BASE" | sha256sum | awk '{print $1}')"
+  cat > "$WS/receipts/criteria-run.json" <<JSON
+{ "gate": "criteria-run", "task_id": "2026-07-02-covfix", "timestamp": "2026-07-31T00:00:00Z", "diff_digest": "$d", "status": "fail" }
+JSON
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --verify-receipts
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"criteria-run"* ]]
+  [[ "$output" != *"receipts verified"* ]]
+  [[ "$output" != *"stale"* ]]                 # both receipts are fresh, so the `fail` is what refused...
+  [[ "$output" != *"coverage.json"* ]]         # ...and coverage's own `fail` is not
+}
+
+# --- receipt integrity: the accept side of the criteria-run read --------------
+# Every receipt probe above is a refusal. The state review actually READS on each
+# round that PASSES is the one none of them reaches: a fresh coverage receipt
+# beside a criteria-run receipt reporting `pass`, written over the pre-loop
+# `running` by bin/check-criteria.sh:159 the moment the loop ends. So `pass` is
+# the wired steady state and not an edge case - it is the state this task's own
+# receipts directory is in - and the two criteria-run refusals above cannot stand
+# in for it: each is a state the audit must refuse for another reason, so neither
+# ever reaches `receipts verified`. Measured before this test existed: head plus
+# one branch refusing criteria-run `pass` once a coverage receipt has been seen is
+# 67/67 green while refusing this repo's own receipt set, so a build in that shape
+# would fail every review from the round it landed and the suite would say
+# nothing. What this must NOT pin is `pass` as a REQUIREMENT - the same receipt
+# reads `running` while the run that writes it is still going, and an audit
+# invoked from inside that run has to accept it (tests/hooks.bats' in-run half).
+# It therefore asserts what the audit does WITH `pass`, never that `pass` is the
+# only value it may accept.
+#
+# All three receipts of a real round, in the order skills/review/SKILL.md:11-13
+# pins: check-criteria from implement-start (code-stale by construction, waived
+# by name), the coverage gate's, then the criteria run's. Only the first is
+# hand-written - the two that owe freshness come from the gates that own them, so
+# a producer that renames a field or digests the wrong tree reds this instead of
+# shipping a receipt no reader would accept.
+
+@test "verify-receipts verifies a criteria-run receipt reporting pass beside a fresh coverage receipt" {
+  # A bats-only diff, so the measurement passes on its own (status 0 -> receipt
+  # `pass`) with no measurement tool the fixture could be missing; STAGED, so
+  # `git diff` reports it and the digest under audit is content-bearing - against
+  # the sha256 of an empty diff a freshness check matches whatever it is handed.
+  git -C "$R" checkout -q -- app.ts
+  printf '#!/usr/bin/env bats\n' > "$R/new.bats"
+  git -C "$R" add new.bats
+  d="$(git -C "$R" diff "$BASE" | sha256sum | awk '{print $1}')"
+  [ -n "$(git -C "$R" diff "$BASE")" ]
+  cat > "$WS/receipts/check-criteria.json" <<'JSON'
+{ "gate": "check-criteria", "task_id": "2026-07-02-covfix", "timestamp": "2026-07-31T00:00:00Z", "diff_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "status": "pass" }
+JSON
+  if ! bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" >/dev/null; then
+    echo "fixture unusable: the round's own coverage gate did not pass on a bats-only diff" >&2
+    return 1
+  fi
+  cat > "$WS/scope.md" <<'EOF'
+## Success Criteria
+- run: true
+EOF
+  if ! bash "$REPO_ROOT/bin/check-criteria.sh" --run --workspace "$WS" --repo "$R" >/dev/null; then
+    echo "fixture unusable: the criteria run did not pass, so its receipt is not the pass state" >&2
+    return 1
+  fi
+  # REFUSE rather than degenerate into a weaker probe: with a receipt missing or
+  # not at `pass` this is some other state, and reaching `receipts verified` out
+  # of it would prove nothing about the state the round leaves.
+  for g in check-criteria coverage criteria-run; do
+    if [ "$(jq -r '.status // empty' "$WS/receipts/$g.json" 2>/dev/null)" != "pass" ]; then
+      echo "fixture unusable: $WS/receipts/$g.json is not a receipt reporting pass" >&2
+      return 1
+    fi
+  done
+  [ "$(jq -r .diff_digest "$WS/receipts/coverage.json")" = "$d" ]         # fresh for this tree...
+  [ "$(jq -r .diff_digest "$WS/receipts/criteria-run.json")" = "$d" ]     # ...both of the two that owe it
+  [ "$(jq -r .diff_digest "$WS/receipts/check-criteria.json")" != "$d" ]  # ...and the third is the code-stale one it is waived for
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --verify-receipts
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"receipts verified"* ]]
+}

@@ -697,3 +697,50 @@ EOF
     fi
   done
 }
+
+# --- FU-10 read at both moments: the in-run audit and the standalone one ------
+# A run that FAILED its criteria must still pass its OWN in-run receipt audit and
+# must fail the standalone one afterwards. Both halves in one test because they
+# are the same receipt read at two moments: the pre-loop write says `running`,
+# which an audit invoked from inside the run it certifies has to accept, and the
+# post-loop rewrite says `fail`, which review's standalone --verify-receipts step
+# must refuse. Requiring `status: pass` breaks the first half - the round's own
+# audit criterion then fails from round 1 onwards, whatever the work was.
+# Leaving `fail` unread leaves the second half certifying a round that ran and
+# lost, which is what the base gate does.
+#
+# The hand-written coverage.json is the receipt review's coverage gate writes
+# before the criteria run (the order skills/review/SKILL.md:11-13 pins); without
+# it the audit refuses for the no-coverage-receipt reason instead, and neither
+# half of this test would be about FU-10.
+#
+# Every fixture path interpolated into the criterion is QUOTED there, the hygiene
+# rule this file states at :511: the criteria run through `bash -c`, so with an
+# unquoted $WS a $TMPDIR carrying a space reds a build that is right. Measured
+# both ways under `TMPDIR=<a path with a space>` before it was written this way.
+@test "a failed criteria run keeps its in-run audit passing and fails the standalone one" {
+  base="$(git -C "$PROJ" rev-parse HEAD)"
+  echo "ref: $base" > "$WS/base-ref"
+  mkdir -p "$WS/receipts"
+  cat > "$WS/scope.md" <<EOF
+## Success Criteria
+- run: bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --workspace "$WS" --repo "$PROJ"
+- run: false
+EOF
+  echo 'a change the round measured' >> "$PROJ/main.go"
+  d="$(git -C "$PROJ" diff "$base" | sha256sum | awk '{print $1}')"
+  cat > "$WS/receipts/coverage.json" <<EOF
+{ "gate": "coverage", "task_id": "2026-07-02-fixture", "timestamp": "2026-07-31T00:00:00Z", "diff_digest": "$d", "status": "pass" }
+EOF
+  run bash "$CHECK" --run --workspace "$WS" --repo "$PROJ"
+  [ "$status" -eq 1 ]                                    # `false` failed the round, as it must
+  [[ "$output" == *"PASS  bash \"$REPO_ROOT/bin/coverage/gate.sh\" --verify-receipts"* ]]   # ...and the audit inside it passed
+  [ "$(jq -r .status "$WS/receipts/criteria-run.json")" = "fail" ]
+  [ "$(jq -r .diff_digest "$WS/receipts/criteria-run.json")" = "$d" ]   # fresh, so the refusal below is about the status
+
+  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --workspace "$WS" --repo "$PROJ"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"criteria-run"* ]]
+  [[ "$output" != *"receipts verified"* ]]
+  [[ "$output" != *"stale"* ]]
+}

@@ -70,27 +70,36 @@ if [ "$VERIFY" -eq 1 ]; then
   [ -n "$WS" ] || { echo "gate: --verify-receipts needs --workspace" >&2; exit 1; }
   [ -d "$WS/receipts" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
   cur="$(diff_digest "$REPO" "$BASE")"
-  # code_dep counts receipts that took the digest-freshness path (every receipt
-  # except check-criteria). Zero means no code-dependent receipt was verified -
-  # the audit must refuse rather than certify a tree coverage never measured.
-  bad=0 code_dep=0
+  # cov_seen answers the question the audit is actually asked: did the COVERAGE
+  # gate leave a fresh receipt for this tree. Counting code-dependent receipts
+  # answered a different one, and criteria-run - code-dependent and fresh by
+  # construction - satisfied that count alone while nothing had measured the tree.
+  bad=0 cov_seen=0
   for r in "$WS"/receipts/*.json; do
     [ -f "$r" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
+    g="$(jq -r '.gate // empty' "$r")"
     # check-criteria validates scope.md (code-independent) but its receipt hashes
     # the diff at implement-start on a clean tree, so its digest goes code-stale
     # the moment implement writes code. Validate it by status, not freshness.
-    if [ "$(jq -r '.gate // empty' "$r")" = "check-criteria" ]; then  # The waiver keys on this gate NAME, not on the script: the same script's review-time `--run` receipt (gate "criteria-run") is code-dependent and takes the freshness path below.
+    if [ "$g" = "check-criteria" ]; then  # The waiver keys on this gate NAME, not on the script: the same script's review-time `--run` receipt (gate "criteria-run") is code-dependent and takes the freshness path below.
       if [ "$(jq -r '.status // empty' "$r")" != "pass" ]; then echo "gate: receipt $(basename "$r") did not pass (status not pass)"; bad=1; fi
       continue
     fi
-    code_dep=$((code_dep + 1))
+    [ "$g" = "coverage" ] && cov_seen=1  # deliberately no `continue`: coverage still owes the freshness check below
+    # criteria-run's exit code is the gate and its receipt witnesses freshness, so
+    # `fail` there means the criteria ran and lost. coverage's status stays unread
+    # by design: reading it would harden the soft block into a verify failure and
+    # route the advisory cannot-measure case (which receipts `fail`) there too.
+    if [ "$g" = "criteria-run" ] && [ "$(jq -r '.status // empty' "$r")" = "fail" ]; then
+      echo "gate: receipt $(basename "$r") reports the criteria run failed"; bad=1
+    fi
     stored="$(jq -r '.diff_digest // empty' "$r")"
     if [ -z "$stored" ]; then echo "gate: receipt $(basename "$r") carries no digest - stale"; bad=1
     elif [ "$stored" != "$cur" ]; then echo "gate: receipt $(basename "$r") is stale (diff digest mismatch)"; bad=1
     fi
   done
   [ "$bad" -eq 1 ] && exit 1
-  [ "$code_dep" -eq 0 ] && { echo "gate: no code-dependent receipt to verify - refusing"; exit 1; }
+  [ "$cov_seen" -eq 0 ] && { echo "gate: no code-dependent receipt to verify - refusing (no coverage receipt)"; exit 1; }
   echo "gate: receipts verified"
   exit 0
 fi
