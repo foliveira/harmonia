@@ -64,5 +64,44 @@ facts this instance adds: stage every new-file deliverable (`git add`, or
 same digest formula, so it inherits the same blind spot. The durable fix - one of
 the two defenses proposed above - is queued as a named future task out of this
 task's verdict. The lens now surfaces this entry whenever a reviewed diff carries
-an untracked deliverable, but the formula itself is still unguarded. Ladder
-unchanged: mechanizable, not yet mechanized, now with two reproduction records.
+an untracked deliverable, but the formula itself is still unguarded. Ladder at
+that point: mechanizable, not yet mechanized, with two reproduction records.
+
+Third instance, 2026-07-31-receipt-integrity - escalated to a major review finding,
+because the blind spot moved from incidental to load-bearing.
+
+That task made `--verify-receipts` require a coverage receipt fresh for the tree, by
+name. The freshness test is this formula. So the digest's blindness is now what the
+restored protection stands on, and the asymmetry sits inside one script: `gate.sh`
+builds its changed-file set as `git diff --name-only <base>` unioned with
+`git ls-files --others --exclude-standard`, while `diff_digest` hashes `git diff`
+alone. One script, two answers to "what changed":
+
+    add brand-new.sh (untracked):  digest unchanged;  audit: receipts verified, exit 0
+      the same gate's classifier:  gate: FAIL - brand-new.sh:ALL (absent from coverage data)
+    after git add -A:              digest moves;      audit: stale, exit 1
+
+During review, before the committer has run, new files are exactly the untracked ones.
+A fresh coverage receipt an earlier stage left behind can therefore certify a tree
+holding code that no coverage run measured.
+
+What got the finding escalated was not the hole, which is this entry's, but a false
+justification built on it: the task's scope declaration declined to fix a residual on
+the grounds that "that claim is true - the digest matches, the tree has not moved". The
+digest can match while the tree has moved. The clause was withdrawn in a second review
+round and replaced with the mechanism.
+
+Second axis, and it does not have the same remedy. `git ls-files --others
+--exclude-standard` excludes ignored paths, so the classifier is wider than the digest
+and still blind to anything gitignored. The task workspace is ignored by design
+(`.gitignore:3`), which means the criteria a `criteria-run` receipt certifies can never
+be covered by any git digest - measured, `git ls-files .harmonia/tasks` is empty. The
+global sibling entry's remedy, "commit anything a reviewer is asked to judge", is
+unavailable for a path ignored on purpose. There the fix has to be a digest of the
+artifact carried inside the receipt that certifies it. See
+2026-07-04-check-criteria-s-receipt-goes-falsely-stale-at-review.md, F7.
+
+Ladder unchanged: mechanizable, not yet mechanized, now with three reproduction
+records. The filed defense is the first one proposed above - hash `git diff` together
+with the untracked set the classifier already computes, which this gate computes twelve
+lines away.
