@@ -91,13 +91,22 @@ setup() {
   grep -qiE 'status.*pass|non-zero' <<<"$step3"          # the signal: status != pass / non-zero exit
 }
 
-@test "the runner halts on a failing review coverage or receipts gate" {
+@test "the runner halts on a failing review coverage, criteria, or receipts gate" {
   # scope: a failing coverage/receipts gate at review halts the run; the runner
   # never records a coverage override to keep going
   grep -qi 'coverage' "$F"
   grep -qi 'receipts' "$F"
   grep -qi 'halt' "$F"
   grep -qi 'never record a coverage override' "$F"
+  # The review stage now runs a criteria gate too, so step 5's halt list must name
+  # it or the runner walks past a failing criterion. Pin it to step 5's OWN line,
+  # following the step-3 test above: step 1's pre-existing entry-gate prose already
+  # says "criteria", so a whole-file grep is satisfied by step 1 and blind to a
+  # stale halt list. Deliberately not a file-wide `criteri` count - that shape
+  # fails a strictly better build.
+  step5="$(grep -E '^5\. ' "$F")"
+  [ -n "$step5" ]
+  grep -qi criteri <<<"$step5"
 }
 
 @test "the runner stops before capture and never accepts" {

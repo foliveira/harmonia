@@ -63,6 +63,52 @@ arbitration; it is not repeated here):
   option; rebinding check-criteria's receipt digest to scope.md would restore
   meaning to its freshness if drift becomes a concern.
 
-Ladder status: partially mechanized. The false-staleness fix landed in this task
-(concern 2, its own commit). The coverage-presence assertion (F1) is the open
-mechanical follow-up. Supersede this entry when F1 lands.
+Ladder status: mechanized. Superseded: F1's guard landed in task
+2026-07-31-receipt-integrity (no commit sha existed at capture time; this status
+ships in that task's own commit); the false-staleness fix landed earlier, in this
+entry's own task (concern 2, its own commit). The entry stays as the reproduction
+record.
+
+F1 as shipped, against F1 as proposed above. This entry offered two defenses -
+"assert a coverage receipt is present and its status is pass, or track that at least
+one receipt was freshness-checked". July took the second, and that counter is what
+2026-07-31-receipt-integrity had to retire: the criteria gate added in
+2026-07-28-verification-loops writes a code-dependent receipt of its own, so the count
+was satisfied by that receipt alone and a review could pass with nothing having
+measured coverage. The new gate takes the FIRST defense minus its status clause. The
+audit sets `cov_seen=1` when a receipt's `.gate` field reads `coverage` and otherwise
+refuses with "no code-dependent receipt to verify - refusing (no coverage receipt)".
+Coverage's own status stays deliberately unread: reading it would harden the
+uncovered-lines soft block into a verify failure and would also refuse the advisory
+cannot-measure route, which legitimately receipts `status: fail`. The coverage arm
+carries no `continue`, so a coverage receipt still owes the freshness check below and a
+stale one is still refused as stale - the `coverage) cov_seen=1; continue` shape, the
+natural copy from the check-criteria arm above it, certifies a stale receipt and is
+red in the shipped suite.
+
+Measured both directions before shipping: 20 receipt states against the pre-fix and
+post-fix builds, 4 changed, every change PASS to REFUSE and none the reverse; an
+independent 375-state sweep found 39 differences, all in that direction. The quick
+lane, whose receipts directory holds `coverage.json` alone, passes identically on both.
+
+F4 above was re-ratified rather than closed, and F1 raises its stakes. The waiver still
+keys on the receipt's unauthenticated `gate` field, and that field stops being a
+routing hint: it is now the certificate that the coverage gate ran against this tree.
+The assumption is not newly weakened - under the old counter a legitimately written
+criteria-run receipt was already sufficient - it lives in one inline comment beside the
+waiver, and it stays bounded by the workspace-write trust boundary.
+
+F7 above got wider, and the widening is worth writing down. The criteria gate's own
+receipt (`criteria-run.json`) certifies "ten criteria executed, all pass" while its
+freshness digest is the shared `git diff` formula. The criteria live in `scope.md`
+under `.harmonia/tasks/`, which `.gitignore:3` ignores, so they appear neither in
+`git diff` nor in `git ls-files --others --exclude-standard` - measured,
+`git ls-files .harmonia/tasks` is empty. No digest built on git can witness the set of
+criteria that receipt is about, and an edit between the criteria run and the review is
+invisible to every mechanical check. This is the same category error named under "The
+root cause" above, in a receipt whose freshness IS checked, which makes it read
+stronger than the waived one while being just as blind to its own subject. The
+2026-07-31 review lead caught the negative by byte-comparing all ten criteria against
+the gate's per-criterion report by hand: zero mismatches, and no gate performs that
+check and no charter asks for it. Filed: put a digest of the criteria block inside the
+receipt.

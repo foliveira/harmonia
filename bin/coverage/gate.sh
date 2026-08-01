@@ -9,7 +9,8 @@
 #   gate.sh --verify-receipts --workspace WS [--repo R] [--base REF]
 #
 # Exit: 0 pass | 1 uncovered changed lines (soft block) | 2 marker without
-# justification | 4 cannot measure (unsupported language or missing tool).
+# justification | 3 a workspace write did not land (I/O failure, not a coverage
+# result) | 4 cannot measure (unsupported language or missing tool).
 set -u
 
 REPO="." BASE="HEAD" BASE_GIVEN=0 WS="" REPORT="" LANG_FORCE="" NO_BRANCH=0 SELF=0
@@ -70,27 +71,36 @@ if [ "$VERIFY" -eq 1 ]; then
   [ -n "$WS" ] || { echo "gate: --verify-receipts needs --workspace" >&2; exit 1; }
   [ -d "$WS/receipts" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
   cur="$(diff_digest "$REPO" "$BASE")"
-  # code_dep counts receipts that took the digest-freshness path (every receipt
-  # except check-criteria). Zero means no code-dependent receipt was verified -
-  # the audit must refuse rather than certify a tree coverage never measured.
-  bad=0 code_dep=0
+  # cov_seen answers the question the audit is actually asked: did the COVERAGE
+  # gate leave a fresh receipt for this tree. Counting code-dependent receipts
+  # answered a different one, and criteria-run - code-dependent and fresh by
+  # construction - satisfied that count alone while nothing had measured the tree.
+  bad=0 cov_seen=0
   for r in "$WS"/receipts/*.json; do
     [ -f "$r" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
+    g="$(jq -r '.gate // empty' "$r")"
     # check-criteria validates scope.md (code-independent) but its receipt hashes
     # the diff at implement-start on a clean tree, so its digest goes code-stale
     # the moment implement writes code. Validate it by status, not freshness.
-    if [ "$(jq -r '.gate // empty' "$r")" = "check-criteria" ]; then
+    if [ "$g" = "check-criteria" ]; then  # The waiver keys on this gate NAME, not on the script: the same script's review-time `--run` receipt (gate "criteria-run") is code-dependent and takes the freshness path below.
       if [ "$(jq -r '.status // empty' "$r")" != "pass" ]; then echo "gate: receipt $(basename "$r") did not pass (status not pass)"; bad=1; fi
       continue
     fi
-    code_dep=$((code_dep + 1))
+    [ "$g" = "coverage" ] && cov_seen=1  # deliberately no `continue`: coverage still owes the freshness check below
+    # criteria-run's exit code is the gate and its receipt witnesses freshness, so
+    # `fail` there means the criteria ran and lost. coverage's status stays unread
+    # by design: reading it would harden the soft block into a verify failure and
+    # route the advisory cannot-measure case (which receipts `fail`) there too.
+    if [ "$g" = "criteria-run" ] && [ "$(jq -r '.status // empty' "$r")" = "fail" ]; then
+      echo "gate: receipt $(basename "$r") reports the criteria run failed"; bad=1
+    fi
     stored="$(jq -r '.diff_digest // empty' "$r")"
     if [ -z "$stored" ]; then echo "gate: receipt $(basename "$r") carries no digest - stale"; bad=1
     elif [ "$stored" != "$cur" ]; then echo "gate: receipt $(basename "$r") is stale (diff digest mismatch)"; bad=1
     fi
   done
   [ "$bad" -eq 1 ] && exit 1
-  [ "$code_dep" -eq 0 ] && { echo "gate: no code-dependent receipt to verify - refusing"; exit 1; }
+  [ "$cov_seen" -eq 0 ] && { echo "gate: no code-dependent receipt to verify - refusing (no coverage receipt)"; exit 1; }
   echo "gate: receipts verified"
   exit 0
 fi
@@ -307,6 +317,16 @@ if [ -n "$WS" ]; then
     fi
     [ -n "$YAML_NOTE" ] && { echo; echo "## YAML"; echo "- $YAML_NOTE"; }
   } > "$WS/gate-report.md"
+  # The report is judged by its RESULT on disk, because the status of the command
+  # that wrote it is unusable: a brace group returns its LAST command's status (the
+  # yaml-note test, false on any diff carrying no yaml) and `{ ...; } > /dev/full`
+  # exits 0 while every write inside it failed. -f rejects a non-file planted at the
+  # path, -s a create that landed no bytes. What no file test can see is an open that
+  # failed over an EXISTING report, leaving the previous round's bytes there.
+  if [ ! -f "$WS/gate-report.md" ] || [ ! -s "$WS/gate-report.md" ]; then
+    echo "gate: FAIL - report did not land at $WS/gate-report.md (I/O failure, not a coverage result)"
+    exit 3
+  fi
   TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   st="pass"; [ "$STATUS" -ne 0 ] && st="fail"
   cat > "$WS/receipts/coverage.json" <<EOF
@@ -318,6 +338,17 @@ if [ -n "$WS" ]; then
   "status": "$st"
 }
 EOF
+  wrote=$?  # cat's own status, usable where the report group's is not: it is what catches an open that failed over an existing receipt
+  # The receipt is the audit's certificate that the coverage gate ran against this
+  # tree, so it goes down only after the report it points at is on disk, and both
+  # halves of "did it land" are asked: the writer's status catches a write that never
+  # happened, the file tests catch one that "succeeded" into a device or a non-file.
+  # The mkdir above needs no check of its own - a receipts path that is not a usable
+  # directory reappears here as a receipt that did not land.
+  if [ "$wrote" -ne 0 ] || [ ! -f "$WS/receipts/coverage.json" ] || [ ! -s "$WS/receipts/coverage.json" ]; then
+    echo "gate: FAIL - receipt did not land at $WS/receipts/coverage.json (I/O failure, not a coverage result)"
+    exit 3
+  fi
 fi
 
 # ---------- stdout summary ----------
