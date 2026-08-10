@@ -759,3 +759,256 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"receipts verified"* ]]
 }
+
+# --- FU-16 in the coverage gate: the write side and the read side -------------
+# Two tests, not one, for the reason this file already states at :651 about the
+# receipt's two halves: they fail for different reasons and a build can close one
+# and leave the other open. That is not hypothetical here - the scope's own
+# reference build closed every write and still answered `gate: receipts verified`
+# through a symlinked receipts/ until the audit was guarded too.
+#
+# The cells are the gate's three workspace SINKS (receipts/, gate-report.md,
+# receipts/coverage.json - the whole list, read off the write block itself) and
+# the tree above them, rather than one symlink form applied once: a guard on
+# receipts/ alone leaves gate-report.md open, which is the sharpest cell in the
+# task - symlink the report at a file the user owns and base overwrites it,
+# prints `gate: OK` and exits 0. `shaped` gives the redirect a target that is
+# itself named .harmonia/tasks, which a guard that only pattern-matches the
+# resolved path accepts.
+#
+# Every cell's fixture makes the gate PASS at base (an untracked markdown file is
+# the whole diff, so nothing is measured and no coverage tool is in play), so
+# `gate: OK` at exit 0 over a clobbered victim is what red looks like here, and
+# the exit code discriminates as well as the disk does.
+
+gsnap_tree() {   # <dir> -> a listing that moves if anything under it is added, removed or edited
+  { find "$1" | sort; find "$1" -type f -exec sha256sum {} + 2>/dev/null | sort; }
+}
+
+gassert_outside_unchanged() {   # <dir> <snapshot-taken-before>
+  local after; after="$(gsnap_tree "$1")"
+  if [ "$after" != "$2" ]; then
+    echo "ESCAPED - the tree outside the workspace changed:"
+    diff <(printf '%s\n' "$2") <(printf '%s\n' "$after") || true
+  fi
+  [ "$after" = "$2" ]
+}
+
+stage_gate() {   # <form> <kind: write|audit>: one self-contained cell; sets CELL, GR, GWS, GBASE
+  local form="$1" kind="$2" real
+  CELL="$BATS_TEST_TMPDIR/gt-$kind-$form"
+  mkdir -p "$CELL/out" "$CELL/real"
+  real="$CELL/real/r"; mkdir -p "$real"
+  git -C "$real" init -q
+  printf 'a\n' > "$real/f.sh"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm b
+  GR="$real"; GBASE="$(git -C "$real" rev-parse HEAD)"
+  GWS="$real/.harmonia/tasks/T"
+  mkdir -p "$GWS/receipts"
+  if [ "$kind" = audit ]; then
+    printf 'a\nb\n' > "$real/f.sh"        # a TRACKED change: the audited digest is content-bearing, not the empty-diff constant
+  else
+    printf 'notes\n' > "$real/notes.md"   # untracked markdown: a real diff the gate routes to `skip`, so it measures nothing and passes
+  fi
+  case "$form" in
+    clean) ;;
+    receipts-dir)
+        rm -rf "$GWS/receipts"; mkdir -p "$CELL/out/receipts"
+        printf 'VICTIM\n' > "$CELL/out/receipts/coverage.json"
+        ln -s "$CELL/out/receipts" "$GWS/receipts" ;;
+    tasks-tree)
+        mv "$real/.harmonia/tasks" "$CELL/out/tasks"; ln -s "$CELL/out/tasks" "$real/.harmonia/tasks"
+        printf 'VICTIM\n' > "$CELL/out/tasks/T/gate-report.md"
+        printf 'VICTIM\n' > "$CELL/out/tasks/T/receipts/coverage.json" ;;
+    report-file)
+        printf 'VICTIM\n' > "$CELL/out/victim-report.md"
+        rm -f "$GWS/gate-report.md"; ln -s "$CELL/out/victim-report.md" "$GWS/gate-report.md" ;;
+    receipt-file)
+        printf 'VICTIM\n' > "$CELL/out/victim-receipt.json"
+        rm -f "$GWS/receipts/coverage.json"; ln -s "$CELL/out/victim-receipt.json" "$GWS/receipts/coverage.json" ;;
+    receipt-unguarded-name)
+        # The write side knows three receipt names; the audit GLOBS. A receipt at
+        # a name no writer will ever guard is reachable only from the read side.
+        printf 'VICTIM\n' > "$CELL/out/victim-zz.json"
+        ln -s "$CELL/out/victim-zz.json" "$GWS/receipts/zz.json" ;;
+    receipts-absent)
+        # tasks-tree and shaped both carry receipts/ along to the redirect
+        # target, so the gate's `mkdir -p` is a no-op there and deleting the
+        # guard in front of it reds nothing. Same redirect, target stripped: the
+        # mkdir is now the statement that CREATES a directory outside the
+        # repository, and it runs before any later guard can refuse.
+        # A dangling symlink at receipts/ does not construct this - mkdir -p
+        # fails "File exists" on one and nothing escapes.
+        mv "$real/.harmonia/tasks" "$CELL/out/tasks"; ln -s "$CELL/out/tasks" "$real/.harmonia/tasks"
+        rm -rf "$CELL/out/tasks/T/receipts" ;;
+    in-repo-shape)
+        # Contained but not a workspace: the redirect target is a real directory
+        # INSIDE the repository, so the anchor prefix test accepts it and only
+        # the shape and single-component tests refuse. Every other form redirects
+        # outside, where the prefix test alone is enough.
+        mkdir -p "$real/src/receipts"; printf 'VICTIM\n' > "$real/src/gate-report.md"
+        rm -rf "$GWS"; ln -s "$real/src" "$GWS" ;;
+    nested-task-path)
+        # Contained AND correctly shaped, but one component too deep. Only the
+        # single-component test refuses this, so it is the cell that pins that
+        # line by itself; in-repo-shape above is refused by either half, so it
+        # pins the pair rather than the line.
+        mkdir -p "$GWS/sub/receipts"; printf 'VICTIM\n' > "$GWS/sub/gate-report.md"
+        GWS="$GWS/sub" ;;
+    shaped)
+        mkdir -p "$CELL/out/.harmonia"
+        mv "$real/.harmonia/tasks" "$CELL/out/.harmonia/tasks"
+        ln -s "$CELL/out/.harmonia/tasks" "$real/.harmonia/tasks"
+        printf 'VICTIM\n' > "$CELL/out/.harmonia/tasks/T/gate-report.md"
+        printf 'VICTIM\n' > "$CELL/out/.harmonia/tasks/T/receipts/coverage.json" ;;
+  esac
+}
+
+@test "the coverage gate refuses a report or receipt write that resolves outside the workspace" {
+  for form in clean receipts-dir tasks-tree report-file receipt-file shaped receipts-absent in-repo-shape nested-task-path; do
+    stage_gate "$form" write
+    before="$(gsnap_tree "$CELL/out")"
+    echo "--- redirect form: $form, workspace $GWS"
+    run bash "$GATE" --repo "$GR" --base "$GBASE" --workspace "$GWS"
+    echo "status=$status"
+    echo "$output"
+    if [ "$form" = clean ]; then
+      # The accept side: a legitimate run still measures, reports and receipts.
+      [ "$status" -eq 0 ]
+      [[ "$output" == *"gate: OK"* ]]
+      [ -s "$GWS/gate-report.md" ]
+      [ -s "$GWS/receipts/coverage.json" ]
+    else
+      [ "$status" -ne 0 ]
+      [[ "$output" != *"gate: OK"* ]]
+      grep -q '^gate: ' <<<"$output"    # refusals speak in this gate's own prefix (:637, :687)
+    fi
+    gassert_outside_unchanged "$CELL/out" "$before"
+    # in-repo-shape's victim is inside the repository, where the outside-tree
+    # snapshot cannot see it: assert it directly or the cell proves nothing.
+    case "$form" in
+      in-repo-shape)    [ "$(cat "$GR/src/gate-report.md")" = VICTIM ] ;;
+      nested-task-path) [ "$(cat "$GWS/gate-report.md")" = VICTIM ] ;;
+    esac
+  done
+}
+
+@test "the receipt audit refuses to certify a receipt store that lives outside the workspace" {
+  # The read side, and the half a build closes last: nothing is written here, so
+  # no escape detector can see it - what is wrong is the VERDICT. Base answers
+  # `gate: receipts verified` at exit 0 over a store the gate never wrote into,
+  # which is a certificate that a tree was measured when nothing measured it.
+  # receipt-file and receipt-unguarded-name are the file-level forms: this loop
+  # globs receipts/*.json, so a directory-level guard leaves an individual
+  # receipt - and any name no writer knows about - followed as written.
+  for form in clean receipts-dir tasks-tree shaped receipt-file receipt-unguarded-name in-repo-shape; do
+    stage_gate "$form" audit
+    cur="$(git -C "$GR" diff "$GBASE" | sha256sum | awk '{print $1}')"
+    [ -n "$(git -C "$GR" diff "$GBASE")" ]   # a real diff, so freshness is a real check and not the empty-diff constant
+    cat > "$GWS/receipts/coverage.json" <<JSON
+{ "gate": "coverage", "task_id": "T", "timestamp": "2026-01-01T00:00:00Z", "diff_digest": "$cur", "status": "pass" }
+JSON
+    # The unguarded-name cell only discriminates if the outside receipt is a
+    # VALID, FRESH one: left as junk it is refused for being unparseable and the
+    # cell would pass against the very build it exists to red.
+    if [ "$form" = receipt-unguarded-name ]; then
+      cat > "$GWS/receipts/zz.json" <<JSON
+{ "gate": "coverage", "task_id": "T", "timestamp": "2026-01-01T00:00:00Z", "diff_digest": "$cur", "status": "pass" }
+JSON
+    fi
+    echo "--- redirect form: $form, workspace $GWS"
+    run bash "$GATE" --verify-receipts --repo "$GR" --base "$GBASE" --workspace "$GWS"
+    echo "status=$status"
+    echo "$output"
+    if [ "$form" = clean ]; then
+      # The accept side: a receipt that really is in the workspace and really is
+      # fresh still verifies, so a refuse-every-audit build is red here.
+      [ "$status" -eq 0 ]
+      [[ "$output" == *"receipts verified"* ]]
+    else
+      [ "$status" -ne 0 ]
+      [[ "$output" != *"receipts verified"* ]]
+      grep -q '^gate: ' <<<"$output"
+    fi
+  done
+}
+
+@test "the gate refuses a base-ref that resolves outside the workspace, in both modes" {
+  # Absent --base the workspace supplies the base, so base-ref is an audit input
+  # with the same standing as the receipts it is used to check. Redirected, it
+  # names a base the caller never chose, and the audit's own answer flips on it:
+  # the receipt below carries the EMPTY-diff digest while the tree really has a
+  # change, so an honest base-ref makes the audit report staleness and the
+  # redirected one - pointing at a ref against which the diff really is empty -
+  # turns that into `receipts verified`. Nothing here is written, so the flip is
+  # invisible to every escape detector; what is wrong is the verdict.
+  local cell="$BATS_TEST_TMPDIR/bref" real
+  mkdir -p "$cell/out"; real="$cell/r"; mkdir -p "$real"
+  git -C "$real" init -q
+  printf 'a\n' > "$real/f.sh"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm b
+  local first; first="$(git -C "$real" rev-parse HEAD)"
+  printf 'a\nb\n' > "$real/f.sh"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm c
+  local head; head="$(git -C "$real" rev-parse HEAD)"
+  local ws="$real/.harmonia/tasks/T"; mkdir -p "$ws/receipts"
+  local empty; empty="$(printf '' | sha256sum | awk '{print $1}')"
+  cat > "$ws/receipts/coverage.json" <<JSON
+{ "gate": "coverage", "task_id": "T", "timestamp": "2026-01-01T00:00:00Z", "diff_digest": "$empty", "status": "pass" }
+JSON
+
+  # Honest base-ref naming the FIRST commit: the live diff is non-empty, so the
+  # empty-diff receipt is stale and the audit must say so. This is the control -
+  # without it the redirect cell cannot be read as a flip.
+  printf 'ref: %s\n' "$first" > "$ws/base-ref"
+  run bash "$GATE" --verify-receipts --repo "$real" --workspace "$ws"
+  echo "honest: status=$status $output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"receipts verified"* ]]
+
+  # Same receipt, base-ref symlinked outside the workspace at a file naming HEAD,
+  # against which the diff IS empty. Unguarded, the audit certifies.
+  printf 'ref: %s\n' "$head" > "$cell/out/base-ref"
+  rm -f "$ws/base-ref"; ln -s "$cell/out/base-ref" "$ws/base-ref"
+  run bash "$GATE" --verify-receipts --repo "$real" --workspace "$ws"
+  echo "redirected: status=$status $output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"receipts verified"* ]]
+  grep -q '^gate: ' <<<"$output"
+
+  # The write mode takes its base from the same line, so the same redirect makes
+  # every measurement and the receipt it writes attest to a base nobody chose.
+  run bash "$GATE" --repo "$real" --workspace "$ws" --lang bash
+  echo "write: status=$status $output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"gate: OK"* ]]
+  grep -q '^gate: ' <<<"$output"
+}
+
+@test "an exported CDPATH does not poison the containment predicate" {
+  # A minor with a real cost: `cd` ECHOES the directory it lands in when CDPATH
+  # is set and the target matches an entry, so the command substitution around it
+  # captures that echo instead of the path. ws_tracked already unsets seven GIT_*
+  # variables on the principle that the environment is not an input these guards
+  # may trust; CDPATH is in exactly that class. Fail-closed only - it refuses the
+  # shipped relative call shape rather than accepting a redirect - but a guard
+  # that refuses correct work is still a guard that is wrong.
+  local real="$BATS_TEST_TMPDIR/cdp/r"
+  mkdir -p "$real"
+  git -C "$real" init -q
+  printf 'a\n' > "$real/f.sh"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm b
+  local id; id="$(bash "$REPO_ROOT/bin/workspace.sh" mint --repo "$real" --slug cdp)"
+  printf 'notes\n' > "$real/notes.md"
+
+  # The relative call shape the skills actually use, from inside the repo.
+  ( cd "$real" && CDPATH=. run bash "$GATE" --repo "." --workspace ".harmonia/tasks/$id"
+    echo "status=$status"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"gate: OK"* ]] )
+}

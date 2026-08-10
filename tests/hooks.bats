@@ -744,3 +744,160 @@ EOF
   [[ "$output" != *"receipts verified"* ]]
   [[ "$output" != *"stale"* ]]
 }
+
+# --- FU-16: the task workspace path is not a trust boundary -------------------
+# Everything under .harmonia/tasks is treated as the user's own and its PATH has
+# not earned that. A symlink anywhere on the way to a workspace redirects the
+# receipt write that goes through it: base writes the receipt out there, reports
+# `check-criteria: OK` and exits 0.
+#
+# The forms are POSITIONS on the receipt's own path, derived component by
+# component from <repo>/.harmonia/tasks/<id>/receipts/<name>.json rather than
+# copied from a list - D .harmonia, C tasks, B <id>, A receipts, E <name>.json -
+# so no component of that path is left unprobed. `shaped` is the C position with
+# a redirect TARGET that is itself named .harmonia/tasks: a guard that asks only
+# whether the resolved path LOOKS like a workspace accepts it and writes into a
+# directory outside the tree it was handed, which is the same escape one name
+# later. `clean` and `linkedroot` are the accept side, and linkedroot is not
+# decoration: it is a checkout reached through a symlinked ancestor (the
+# /var -> /private/var shape every macOS TMPDIR has), and a guard comparing the
+# path it was GIVEN against a resolved one refuses every such checkout.
+#
+# Both modes, because both reach the same writer - shape mode at every implement
+# round, --run only at review - so a rule gated on --run still clobbers a victim
+# at implement time, which is the more frequent of the two.
+#
+# The detector is a before/after snapshot of the whole outside tree (every path,
+# plus every file's sha256), not a match on artifact names: a write under a name
+# this test does not know is still an escape, and so is a deletion. A redirected
+# command's exit status cannot say whether the write landed; the disk can.
+
+snap_tree() {   # <dir> -> a listing that moves if anything under it is added, removed or edited
+  { find "$1" | sort; find "$1" -type f -exec sha256sum {} + 2>/dev/null | sort; }
+}
+
+cc_assert_outside_unchanged() {   # <dir> <snapshot-taken-before>
+  local after; after="$(snap_tree "$1")"
+  if [ "$after" != "$2" ]; then
+    echo "ESCAPED - the tree outside the workspace changed:"
+    diff <(printf '%s\n' "$2") <(printf '%s\n' "$after") || true
+  fi
+  [ "$after" = "$2" ]
+}
+
+plant_receipts() {   # <receipts-dir>: the two names check-criteria.sh writes, one per mode
+  printf 'VICTIM\n' > "$1/check-criteria.json"
+  printf 'VICTIM\n' > "$1/criteria-run.json"
+}
+
+stage_cc() {   # <form>: builds one self-contained cell; sets CELL, RB (--repo), WSP (--workspace)
+  local form="$1" real
+  CELL="$BATS_TEST_TMPDIR/cc-$form"
+  mkdir -p "$CELL/out" "$CELL/real"
+  real="$CELL/real/r"
+  mkdir -p "$real"
+  git -C "$real" init -q
+  printf 'a\n' > "$real/f.sh"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm b
+  RB="$real"
+  WSP="$real/.harmonia/tasks/T"
+  mkdir -p "$WSP/receipts"
+  cat > "$WSP/scope.md" <<'EOS'
+## Success Criteria
+- run: true
+EOS
+  case "$form" in
+    clean) ;;
+    linkedroot)
+      ln -s "$CELL/real" "$CELL/link" || { echo "fixture unusable: cannot symlink in TMPDIR" >&2; return 1; }
+      [ -f "$CELL/link/r/.harmonia/tasks/T/scope.md" ] || { echo "fixture unusable: the symlinked ancestor is unusable" >&2; return 1; }
+      RB="$CELL/link/r"; WSP="$CELL/link/r/.harmonia/tasks/T" ;;
+    A)  rm -rf "$WSP/receipts"; mkdir -p "$CELL/out/receipts"; plant_receipts "$CELL/out/receipts"
+        ln -s "$CELL/out/receipts" "$WSP/receipts" ;;
+    B)  mv "$WSP" "$CELL/out/T"; ln -s "$CELL/out/T" "$WSP"; plant_receipts "$CELL/out/T/receipts" ;;
+    C)  mv "$real/.harmonia/tasks" "$CELL/out/tasks"; ln -s "$CELL/out/tasks" "$real/.harmonia/tasks"
+        plant_receipts "$CELL/out/tasks/T/receipts" ;;
+    C-absent)
+        # Same redirect as C, with receipts/ stripped from the target. Every
+        # other form carries it along, so the gate's `mkdir -p` is a no-op and
+        # deleting the guard in front of it reds nothing; here that mkdir is the
+        # statement that creates a directory outside the repository.
+        mv "$real/.harmonia/tasks" "$CELL/out/tasks"; ln -s "$CELL/out/tasks" "$real/.harmonia/tasks"
+        rm -rf "$CELL/out/tasks/T/receipts" ;;
+    D)  mv "$real/.harmonia" "$CELL/out/harmonia"; ln -s "$CELL/out/harmonia" "$real/.harmonia"
+        plant_receipts "$CELL/out/harmonia/tasks/T/receipts" ;;
+    E)  printf 'VICTIM\n' > "$CELL/out/E-shape.json"; printf 'VICTIM\n' > "$CELL/out/E-run.json"
+        rm -f "$WSP/receipts/check-criteria.json" "$WSP/receipts/criteria-run.json"
+        ln -s "$CELL/out/E-shape.json" "$WSP/receipts/check-criteria.json"
+        ln -s "$CELL/out/E-run.json" "$WSP/receipts/criteria-run.json" ;;
+    shaped)
+        mkdir -p "$CELL/out/.harmonia"
+        mv "$real/.harmonia/tasks" "$CELL/out/.harmonia/tasks"
+        ln -s "$CELL/out/.harmonia/tasks" "$real/.harmonia/tasks"
+        plant_receipts "$CELL/out/.harmonia/tasks/T/receipts" ;;
+  esac
+  [ -f "$WSP/scope.md" ] || { echo "fixture unusable: no scope.md is reachable at $WSP - the gate would refuse for the wrong reason" >&2; return 1; }
+}
+
+@test "the criteria gate refuses a receipt write that resolves outside the workspace, in both modes" {
+  for form in clean linkedroot A B C D E shaped C-absent; do
+    stage_cc "$form"
+    before="$(snap_tree "$CELL/out")"
+    for mode in shape run; do
+      echo "--- redirect form: $form ($mode mode), workspace $WSP"
+      if [ "$mode" = run ]; then
+        run bash "$CHECK" --run --workspace "$WSP" --repo "$RB"
+      else
+        run bash "$CHECK" --workspace "$WSP" --repo "$RB"
+      fi
+      echo "status=$status"
+      echo "$output"
+      case "$form" in
+        clean|linkedroot)
+          # The accept side. A legitimate workspace still receipts, in the
+          # directory it was pointed at, and reports so.
+          [ "$status" -eq 0 ]
+          [[ "$output" == *"check-criteria: OK"* ]]
+          if [ "$mode" = run ]; then
+            [ -s "$WSP/receipts/criteria-run.json" ]
+          else
+            [ -s "$WSP/receipts/check-criteria.json" ]
+          fi
+          ;;
+        *)
+          [ "$status" -ne 0 ]                        # a receipt that cannot land is a gate failure, not a verdict
+          [[ "$output" != *"check-criteria: OK"* ]]  # and never an OK over a write that went elsewhere
+          ;;
+      esac
+      # The judgement, every form: nothing outside the tree the caller named was
+      # created, rewritten or removed.
+      cc_assert_outside_unchanged "$CELL/out" "$before"
+    done
+  done
+}
+
+@test "the criteria gate refuses a base-ref that resolves outside the workspace" {
+  # M1's third reader site. accept and reject are covered in workspace.bats; this
+  # is the one that receipts a digest rather than writing a marker, so a redirect
+  # makes the receipt attest to a base the caller never named.
+  local cell="$BATS_TEST_TMPDIR/cbref" real
+  mkdir -p "$cell/out"; real="$cell/r"; mkdir -p "$real"
+  git -C "$real" init -q
+  printf 'a\n' > "$real/f.sh"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm b
+  local ws="$real/.harmonia/tasks/T"; mkdir -p "$ws/receipts"
+  cat > "$ws/scope.md" <<'EOS'
+## Success Criteria
+- run: true
+EOS
+  printf 'ref: %s\n' "$(git -C "$real" rev-parse HEAD)" > "$cell/out/base-ref"
+  ln -s "$cell/out/base-ref" "$ws/base-ref"
+  run bash "$CHECK" --workspace "$ws" --repo "$real" </dev/null
+  echo "status=$status"
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"check-criteria: OK"* ]]
+  [ ! -f "$ws/receipts/check-criteria.json" ]   # and no receipt claiming the run happened
+}

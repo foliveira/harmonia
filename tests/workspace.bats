@@ -383,3 +383,352 @@ git_ws() {
   [ -f "$V" ]
   grep -q 'test-immutability VIOLATION' "$V"        # the recorded violation line
 }
+
+# --- FU-16 in workspace.sh: every command that mutates a workspace ------------
+# The list below is the case block of bin/workspace.sh filtered to the branches
+# that write or remove a file under $TASKS/$ID - resolve and verify-acceptance
+# are absent because they mutate nothing, and mint has its own test because it
+# CREATES the tree it would have to resolve. It is enumerated from the script
+# rather than copied from a boundary list on purpose: the two sites this repo
+# discovered late were both deletions (accept removes `rejected`, reject removes
+# `accepted`) and clear-span, which writes nothing at all and removes six named
+# files on /harmonia:flow's own entry path.
+#
+# Two redirect forms, because they fail differently. `tasks-tree` puts a symlink
+# above the task directory, which a guard that resolves the workspace catches;
+# `artifact-file` symlinks the ONE name each command writes through, which only a
+# guard that also resolves that name catches - a build that resolves the
+# directory and hands the wrong artifact name to its guard passes the first and
+# clobbers a user's file on the second. clear-span is deliberately absent from
+# the second form: it only rm -f's, and rm -f on a symlink unlinks the link
+# rather than the target, so there is no escape there to assert.
+#
+# The detector is a before/after snapshot of the whole outside tree - every path
+# plus every file's sha256 - because these commands DELETE as well as write, and
+# a name-matched detector cannot see a victim that is gone. Every artifact is
+# planted with content, so the clean cells cannot pass on mere existence: the
+# command must really have rewritten what it claims to own.
+
+WS_MUTATORS="clear-span accept reject complete abandon record-test-hashes verify-test-hashes"
+
+mutator_artifact() {   # <cmd> -> the single name it writes THROUGH ('' where a symlink cannot be followed into)
+  case "$1" in
+    accept)             echo accepted ;;
+    reject)             echo rejected ;;
+    complete)           echo done ;;
+    abandon)            echo abandoned ;;
+    record-test-hashes) echo test-hashes ;;
+    verify-test-hashes) echo violations ;;
+    clear-span)         echo "" ;;
+  esac
+}
+
+wsnap_tree() {   # <dir> -> a listing that moves if anything under it is added, removed or edited
+  { find "$1" | sort; find "$1" -type f -exec sha256sum {} + 2>/dev/null | sort; }
+}
+
+wassert_outside_unchanged() {   # <dir> <snapshot-taken-before>
+  local after; after="$(wsnap_tree "$1")"
+  if [ "$after" != "$2" ]; then
+    echo "ESCAPED - the tree outside the workspace changed:"
+    diff <(printf '%s\n' "$2") <(printf '%s\n' "$after") || true
+  fi
+  [ "$after" = "$2" ]
+}
+
+stage_wsmut() {   # <form>: one repo per form, one task directory per command; sets CELL, MR
+  local form="$1" real d art
+  CELL="$BATS_TEST_TMPDIR/wm-$form"
+  mkdir -p "$CELL/out" "$CELL/real"
+  real="$CELL/real/r"; mkdir -p "$real"
+  git -C "$real" init -q
+  printf 'a\n' > "$real/f.sh"
+  printf 'x\n' > "$real/thing.bats"        # a test file, so record-test-hashes has something to record
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm b
+  MR="$real"
+  local ref; ref="$(git -C "$real" rev-parse HEAD)"
+  for cmd in $WS_MUTATORS; do
+    d="$real/.harmonia/tasks/2026-01-01-$cmd"
+    mkdir -p "$d/receipts"
+    for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations \
+             accepted rejected done abandoned test-hashes scope.md; do printf 'PLANTED\n' > "$d/$f"; done
+    printf 'ref: %s\n' "$ref" > "$d/base-ref"   # resolvable, so accept and reject reach their write instead of refusing for another reason
+  done
+  case "$form" in
+    clean) ;;
+    tasks-tree)
+      mv "$real/.harmonia/tasks" "$CELL/out/tasks"
+      ln -s "$CELL/out/tasks" "$real/.harmonia/tasks" ;;
+    artifact-file)
+      for cmd in $WS_MUTATORS; do
+        art="$(mutator_artifact "$cmd")"
+        [ -n "$art" ] || continue
+        printf 'VICTIM\n' > "$CELL/out/$cmd-$art"
+        rm -f "$real/.harmonia/tasks/2026-01-01-$cmd/$art"
+        ln -s "$CELL/out/$cmd-$art" "$real/.harmonia/tasks/2026-01-01-$cmd/$art"
+      done ;;
+  esac
+}
+
+@test "every workspace.sh command that mutates a workspace refuses a redirected one" {
+  for form in clean tasks-tree artifact-file; do
+    stage_wsmut "$form"
+    for cmd in $WS_MUTATORS; do
+      if [ "$form" = artifact-file ] && [ -z "$(mutator_artifact "$cmd")" ]; then continue; fi
+      id="2026-01-01-$cmd"; d="$MR/.harmonia/tasks/$id"
+      before="$(wsnap_tree "$CELL/out")"
+      echo "--- $cmd, redirect form: $form"
+      case "$cmd" in
+        reject) run bash "$WS_SH" reject --repo "$MR" --task "$id" --reason "x" ;;
+        *)      run bash "$WS_SH" "$cmd" --repo "$MR" --task "$id" ;;
+      esac
+      echo "status=$status"
+      echo "$output"
+      if [ "$form" = clean ]; then
+        # The accept side, one assertion per command: the artifact it owns is
+        # really rewritten (not merely present - every one was planted), and the
+        # ones it supersedes are really gone.
+        case "$cmd" in
+          clear-span)
+            [ "$status" -eq 0 ]
+            for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations; do [ ! -e "$d/$f" ]; done ;;
+          accept)
+            [ "$status" -eq 0 ]; [ "$(head -1 "$d/accepted")" != "PLANTED" ]; [ ! -e "$d/rejected" ] ;;
+          reject)
+            [ "$status" -eq 0 ]; grep -q '^reason: x' "$d/rejected"; [ ! -e "$d/accepted" ] ;;
+          complete)
+            [ "$status" -eq 0 ]; [ "$(cat "$d/done")" != "PLANTED" ] ;;
+          abandon)
+            [ "$status" -eq 0 ]; [ "$(cat "$d/abandoned")" != "PLANTED" ] ;;
+          record-test-hashes)
+            [ "$status" -eq 0 ]; grep -q 'thing.bats' "$d/test-hashes" ;;
+          verify-test-hashes)
+            # a planted junk manifest IS a violation; what this pins is that the
+            # record of it lands inside the workspace and the command says so.
+            [ "$status" -ne 0 ]; grep -q 'VIOLATION' "$d/violations" ;;
+        esac
+      else
+        [ "$status" -ne 0 ]
+      fi
+      wassert_outside_unchanged "$CELL/out" "$before"
+    done
+  done
+}
+
+# --- mint: the write that decides where every later stage writes --------------
+# mint is the exception to resolve-then-work, because it CREATES the workspace:
+# there is nothing to resolve when the check has to run. It writes four things -
+# the task directory with receipts/, $TASKS/.gitignore one level ABOVE it,
+# `minted` and `base-ref` - and it re-uses an existing directory when the date
+# and slug repeat, so a symlink planted at any of those names survives to be
+# followed. The cells below are those four writes plus the two tree positions
+# above them; the three artifact cells are the ones a post-check that names only
+# receipts/ walks straight past, with two user files overwritten at exit 0.
+#
+# Each cell begins with a real mint, so the accept side is asserted seven times:
+# mint still mints, and the id it prints is what the cell plants under.
+
+@test "mint refuses to create or extend a task tree that leaves the repository" {
+  for cell in harmonia-link tasks-link gitignore-link id-link minted-link base-ref-link receipts-link; do
+    C="$BATS_TEST_TMPDIR/mint-$cell"
+    mkdir -p "$C/out" "$C/r"
+    T="$C/r/.harmonia/tasks"
+
+    echo "--- mint cell: $cell"
+    run bash "$WS_SH" mint --repo "$C/r" --slug probe
+    echo "first mint status=$status"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    id="$output"
+    [ -s "$T/$id/minted" ]
+    [ -s "$T/$id/base-ref" ]
+    [ -d "$T/$id/receipts" ]
+    [ "$(cat "$T/.gitignore")" = "*" ]
+    [ "$id" = "$(date +%Y-%m-%d)-probe" ]   # precondition: the re-mint below lands on this same directory
+
+    case "$cell" in
+      harmonia-link)
+        rm -rf "$C/r/.harmonia"; mkdir -p "$C/out/harmonia"
+        ln -s "$C/out/harmonia" "$C/r/.harmonia" ;;
+      tasks-link)
+        rm -rf "$T"; mkdir -p "$C/out/tasks"
+        ln -s "$C/out/tasks" "$T" ;;
+      gitignore-link)
+        printf 'VICTIM\n' > "$C/out/victim-gitignore"
+        rm -f "$T/.gitignore"; ln -s "$C/out/victim-gitignore" "$T/.gitignore" ;;
+      id-link)
+        rm -rf "$T/$id"; mkdir -p "$C/out/id-target"
+        ln -s "$C/out/id-target" "$T/$id" ;;
+      minted-link)
+        printf 'VICTIM\n' > "$C/out/victim-minted"
+        rm -f "$T/$id/minted"; ln -s "$C/out/victim-minted" "$T/$id/minted" ;;
+      base-ref-link)
+        printf 'VICTIM\n' > "$C/out/victim-base-ref"
+        rm -f "$T/$id/base-ref"; ln -s "$C/out/victim-base-ref" "$T/$id/base-ref" ;;
+      receipts-link)
+        # the target deliberately does NOT exist: mkdir -p through a dangling
+        # symlink is what creates a directory outside the repository.
+        rm -rf "$T/$id/receipts"; ln -s "$C/out/receipts-target" "$T/$id/receipts" ;;
+    esac
+
+    before="$(wsnap_tree "$C/out")"
+    run bash "$WS_SH" mint --repo "$C/r" --slug probe --new
+    echo "re-mint status=$status"
+    echo "$output"
+    [ "$status" -ne 0 ]
+    wassert_outside_unchanged "$C/out" "$before"
+  done
+}
+
+# --- the READ side: verify-acceptance and verify-test-hashes ----------------
+# Both commands write nothing, so no escape detector can see them getting the
+# wrong bytes - what is wrong is the VERDICT each one prints, and both verdicts
+# are gates: skills/capture/SKILL.md:11 gates on acceptance, and the review lead
+# treats the manifest check as a mandatory audit input. Two ways to be handed the
+# wrong file: it is redirected (containment), or it shipped with the repository
+# (provenance). Neither is reachable from the write-side guards.
+
+stage_read() {   # <form>: sets RR (repo) and RW (workspace), with a genuinely edited recorded test
+  local form="$1" real
+  RCELL="$BATS_TEST_TMPDIR/rd-$form"
+  mkdir -p "$RCELL/out"
+  real="$RCELL/r"; mkdir -p "$real"
+  git -C "$real" init -q
+  printf 'a\n' > "$real/f.sh"
+  printf 'x\n' > "$real/t.bats"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm b
+  RR="$real"
+  RW="$real/.harmonia/tasks/T"
+  mkdir -p "$RW/receipts"
+  printf 'ref: %s\n' "$(git -C "$real" rev-parse HEAD)" > "$RW/base-ref"
+  ( cd "$real" && sha256sum t.bats ) > "$RW/test-hashes"
+  printf 'x\n# edited\n' > "$real/t.bats"    # a REAL violation, so the honest verdict is known
+  printf 'ts\ndigest: %s\n' \
+    "$(git -C "$real" diff "$(git -C "$real" rev-parse HEAD)" | sha256sum | awk '{print $1}')" \
+    > "$RW/accepted"
+  case "$form" in
+    clean) ;;
+    manifest)
+        # recomputed at the redirect target, so it MATCHES the edit: unguarded,
+        # the KTD12 violation simply disappears.
+        ( cd "$real" && sha256sum t.bats ) > "$RCELL/out/forged-hashes"
+        rm -f "$RW/test-hashes"; ln -s "$RCELL/out/forged-hashes" "$RW/test-hashes" ;;
+    marker)
+        cp "$RW/accepted" "$RCELL/out/forged-accepted"
+        rm -f "$RW/accepted"; ln -s "$RCELL/out/forged-accepted" "$RW/accepted" ;;
+  esac
+}
+
+@test "verify-test-hashes and verify-acceptance refuse a manifest or marker redirected outside the workspace" {
+  for form in clean manifest marker; do
+    stage_read "$form"
+    echo "--- redirect form: $form"
+    # The recorded test file really is edited in every cell, so the honest
+    # verdict is a violation in all three: clean and marker report it because it
+    # is true, and the manifest cell is the discriminator - redirected, the
+    # forged manifest matches the edit and the violation simply disappears.
+    run bash "$WS_SH" verify-test-hashes --repo "$RR" --task T
+    echo "hashes: status=$status $output"
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"test hashes verified"* ]]
+
+    # Each guard must be narrow as well as present: only the marker cell may
+    # change what verify-acceptance answers. A build that refuses a whole
+    # command because some other file in the workspace is redirected is red on
+    # the manifest cell, and one that refuses everything is red on clean too.
+    run bash "$WS_SH" verify-acceptance --repo "$RR" --task T
+    echo "acceptance: status=$status $output"
+    if [ "$form" = marker ]; then
+      [ "$status" -ne 0 ]
+      [[ "$output" != *"acceptance verified"* ]]
+    else
+      [ "$status" -eq 0 ]
+      [[ "$output" == *"acceptance verified"* ]]
+    fi
+  done
+}
+@test "accept and reject refuse a base-ref that resolves outside the workspace" {
+  # M1. base-ref decides the digest these two commands WRITE into a marker, so a
+  # redirect makes the developer's own consent record attest to a base they never
+  # chose. Two commits, so no-difference cannot read as a pass: the honest base
+  # names the FIRST commit and digests a real change, the redirected one names
+  # HEAD and digests to the empty-diff constant.
+  local cell="$BATS_TEST_TMPDIR/m1" real
+  mkdir -p "$cell/out"; real="$cell/r"; mkdir -p "$real"
+  git -C "$real" init -q
+  printf 'a\n' > "$real/f.sh"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm b
+  local first; first="$(git -C "$real" rev-parse HEAD)"
+  printf 'a\nb\n' > "$real/f.sh"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm c
+  local head; head="$(git -C "$real" rev-parse HEAD)"
+  local ws="$real/.harmonia/tasks/T"; mkdir -p "$ws/receipts"
+  local empty; empty="$(printf '' | sha256sum | awk '{print $1}')"
+
+  # Honest control: the real base digests a real change, not the empty constant.
+  printf 'ref: %s\n' "$first" > "$ws/base-ref"
+  run bash "$WS_SH" accept --repo "$real" --task T
+  [ "$status" -eq 0 ]
+  local honest; honest="$(sed -n 's/^digest: //p' "$ws/accepted")"
+  [ "$honest" != "$empty" ]
+  rm -f "$ws/accepted"
+
+  printf 'ref: %s\n' "$head" > "$cell/out/base-ref"
+  rm -f "$ws/base-ref"; ln -s "$cell/out/base-ref" "$ws/base-ref"
+  run bash "$WS_SH" accept --repo "$real" --task T
+  echo "accept: status=$status $output"
+  [ "$status" -ne 0 ]
+  [ ! -f "$ws/accepted" ]                 # and no marker was written at all
+  run bash "$WS_SH" reject --repo "$real" --task T --reason nope
+  echo "reject: status=$status $output"
+  [ "$status" -ne 0 ]
+  [ ! -f "$ws/rejected" ]
+}
+
+@test "verify-acceptance guards every file it reads, not only the marker" {
+  # M6. The shipped loop guards rejected, accepted and base-ref; narrowing it to
+  # `accepted` alone reds no test and greens every criterion, while forging
+  # `acceptance verified` over a genuinely stale marker through a base the caller
+  # never chose. This is the cell that pins the other two names.
+  local cell="$BATS_TEST_TMPDIR/m6" real
+  mkdir -p "$cell/out"; real="$cell/r"; mkdir -p "$real"
+  git -C "$real" init -q
+  printf 'a\n' > "$real/f.sh"
+  git -C "$real" add -A
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm b
+  local ws; ws="$(bash "$WS_SH" mint --repo "$real" --slug t)"
+  local wsd="$real/.harmonia/tasks/$ws"
+  bash "$WS_SH" accept --repo "$real" --task "$ws"
+
+  # Move the tree on: the recorded digest is now genuinely stale.
+  printf 'a\nb\n' > "$real/f.sh"
+  run bash "$WS_SH" verify-acceptance --repo "$real" --task "$ws"
+  echo "stale: status=$status $output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"acceptance verified"* ]]
+
+  # A base-ref redirected at a file naming the CURRENT head makes the stale
+  # marker look fresh. Guarded, this refuses; unguarded it certifies.
+  printf 'ref: %s\n' "$(git -C "$real" rev-parse HEAD)" > "$cell/out/base-ref"
+  rm -f "$wsd/base-ref"; ln -s "$cell/out/base-ref" "$wsd/base-ref"
+  run bash "$WS_SH" verify-acceptance --repo "$real" --task "$ws"
+  echo "redirected base-ref: status=$status $output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"acceptance verified"* ]]
+
+  # And the rejected name: a live rejection redirected outside must not be
+  # readable past either. Restore an honest base first so this cell tests one
+  # thing.
+  rm -f "$wsd/base-ref"; printf 'ref: %s\n' "$(git -C "$real" rev-parse HEAD)" > "$wsd/base-ref"
+  printf 'ts\nreason: planted\ndigest: x\n' > "$cell/out/rejected"
+  ln -s "$cell/out/rejected" "$wsd/rejected"
+  run bash "$WS_SH" verify-acceptance --repo "$real" --task "$ws"
+  echo "redirected rejected: status=$status $output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"acceptance verified"* ]]
+  [[ "$output" == *"refusing"* ]]
+}

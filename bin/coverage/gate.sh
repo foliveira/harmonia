@@ -8,9 +8,12 @@
 #   gate.sh --record-override "path|lines|justification" [--workspace WS] [--repo R]
 #   gate.sh --verify-receipts --workspace WS [--repo R] [--base REF]
 #
-# Exit: 0 pass | 1 uncovered changed lines (soft block) | 2 marker without
+# Exit: 0 pass | 1 uncovered changed lines (soft block), or --verify-receipts
+# pointed at a receipt store outside the workspace | 2 marker without
 # justification | 3 a workspace write did not land (I/O failure, not a coverage
-# result) | 4 cannot measure (unsupported language or missing tool).
+# result) - including one refused because it would have landed outside the
+# workspace | 4 cannot measure (unsupported language or missing tool, or a
+# base-ref that does not resolve inside the workspace).
 set -u
 
 REPO="." BASE="HEAD" BASE_GIVEN=0 WS="" REPORT="" LANG_FORCE="" NO_BRANCH=0 SELF=0
@@ -36,9 +39,38 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$REPO" && pwd)"
 TASK_ID="unknown"; [ -n "$WS" ] && TASK_ID="$(basename "$WS")"
 
+# Every write this gate makes into a workspace goes through here first (FU-16).
+# The report is the sharpest of them: symlink $WS/gate-report.md at a file the
+# user owns and the unguarded gate overwrites it, prints `gate: OK` and exits 0.
+# Exit 3 is this script's "a workspace write did not land" - a refusal is that
+# case, decided before the write instead of after it.
+ws_guard() {   # <rel-under-the-workspace>
+  ws_contained "$WS" "$1" && return 0
+  echo "gate: FAIL - $1 is not a real path inside the task workspace $WS (refusing to write through it)"
+  exit 3
+}
+
 # Absent --base, a workspace's base-ref file supplies the base; parsing,
 # base resolution, and the digest formula are shared (bin/base-ref-lib.sh).
-[ "$BASE_GIVEN" -eq 0 ] && [ -n "$WS" ] && [ -f "$WS/base-ref" ] && BASE="$(cat "$WS/base-ref")"
+# Absent --base the workspace supplies the base, which makes base-ref an audit
+# input with the same standing as the receipts checked against it: redirected, it
+# names a base the caller never chose, and the audit's answer flips on it - a
+# receipt holding the empty-diff digest goes from `stale` to `receipts verified`
+# when base-ref is symlinked at a file naming a ref the diff really is empty
+# against. Cannot measure rather than a coverage verdict, and in both modes:
+# what is untrustworthy is the base every diff here is taken against.
+# base-ref is judged whenever a workspace names one, NOT only when this
+# invocation is about to read it. Putting the guard behind `--base` being absent
+# was measured wide open: all three shipped skills pass
+# `--base <workspace base-ref>`, so the agent reads the repository's committed
+# value and hands it straight back in, and the guard never ran. The shape that
+# refused - no `--base` at all - is one no skill produces. A workspace whose
+# base-ref a repository carries is not a workspace anyone here minted, and that
+# is true regardless of which argument this call happens to use.
+if [ -n "$WS" ] && [ -f "$WS/base-ref" ]; then
+  ws_contained "$WS" base-ref || { echo "gate: cannot measure - base-ref is not a real path inside the task workspace $WS (refusing to take a base from outside it)"; exit 4; }
+  [ "$BASE_GIVEN" -eq 0 ] && BASE="$(cat "$WS/base-ref")"
+fi
 BASE="$(parse_base_ref "$BASE")"
 
 # ---------- override audit log ----------
@@ -70,6 +102,12 @@ fi
 if [ "$VERIFY" -eq 1 ]; then
   [ -n "$WS" ] || { echo "gate: --verify-receipts needs --workspace" >&2; exit 1; }
   [ -d "$WS/receipts" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
+  # The audit half of containment, and the one a build closes last: nothing is
+  # written here, so no escape detector sees it - what is wrong is the VERDICT.
+  # Unguarded, this branch answers `gate: receipts verified` at exit 0 over a
+  # store the gate never wrote into. Exit 1, because every other verdict in this
+  # branch is 1 and nothing here writes.
+  ws_contained "$WS" receipts || { echo "gate: FAIL - the receipts path does not resolve inside the task workspace $WS (refusing to certify receipts from outside it)"; exit 1; }
   cur="$(diff_digest "$REPO" "$BASE")"
   # cov_seen answers the question the audit is actually asked: did the COVERAGE
   # gate leave a fresh receipt for this tree. Counting code-dependent receipts
@@ -78,6 +116,14 @@ if [ "$VERIFY" -eq 1 ]; then
   bad=0 cov_seen=0
   for r in "$WS"/receipts/*.json; do
     [ -f "$r" ] || { echo "gate: receipts missing at $WS/receipts"; exit 1; }
+    # The directory check above stops one level of granularity short of the read.
+    # This loop GLOBS, so it reaches names no writer knows to guard - the write
+    # side guards three fixed ones - and a symlink at an individual receipt is
+    # followed inside a receipts/ that is itself perfectly contained. Measured on
+    # the build that shipped only the directory check: a forged receipt outside
+    # the repository carrying the live digest answered `gate: receipts verified`
+    # at exit 0, while the write side refused the identical shape.
+    ws_contained "$WS" "receipts/${r##*/}" || { echo "gate: FAIL - receipts/${r##*/} does not resolve inside the task workspace $WS (refusing to certify a receipt from outside it)"; exit 1; }
     g="$(jq -r '.gate // empty' "$r")"
     # check-criteria validates scope.md (code-independent) but its receipt hashes
     # the diff at implement-start on a clean tree, so its digest goes code-stale
@@ -285,7 +331,9 @@ fi
 
 # ---------- workspace report + receipt (KTD10, KTD7) ----------
 if [ -n "$WS" ]; then
+  ws_guard receipts          # the mkdir below creates a directory outside through a redirected receipts/
   mkdir -p "$WS/receipts"
+  ws_guard gate-report.md
   {
     echo "# Coverage gate report"
     echo
@@ -329,6 +377,7 @@ if [ -n "$WS" ]; then
   fi
   TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   st="pass"; [ "$STATUS" -ne 0 ] && st="fail"
+  ws_guard receipts/coverage.json   # refuse before the receipt, never after
   cat > "$WS/receipts/coverage.json" <<EOF
 {
   "gate": "coverage",

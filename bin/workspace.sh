@@ -14,7 +14,8 @@
 #   workspace.sh verify-test-hashes --repo R [--task <id>]
 #
 # Exit: 0 ok | 1 failure (incl. hash violation, stale acceptance,
-# unresolvable base) | 2 ambiguity | 3 no active task | 4 mint refused
+# unresolvable base, and a workspace path that does not resolve inside the
+# repository's task tree) | 2 ambiguity | 3 no active task | 4 mint refused
 # (incomplete workspace exists; pass --new to force) | 5 no acceptance
 # marker (verify-acceptance) | 6 live rejection blocks verify-acceptance.
 set -u
@@ -69,6 +70,19 @@ pick() { # resolve --task override or the single incomplete workspace
   echo "$list" | sed '/^$/d'
 }
 
+# Guard first, then work (FU-16): the containment question is asked as the first
+# statement after a command resolves its id, before any read and before any
+# write. That is what makes verify-test-hashes refuse a redirected manifest
+# rather than read it, and it is one line per command instead of one per sink.
+# The rm -f pairs (accept's `rejected`, reject's `accepted`, clear-span's six)
+# get no call of their own: once this passes, the workspace is contained, so the
+# worst those can find is a symlink inside it - and rm -f unlinks the link.
+ws_guard() {   # <rel-under-the-workspace, empty for the task directory itself>
+  ws_contained "$TASKS/$ID" "${1:-}" && return 0
+  echo "workspace: refusing - ${1:-the task directory} is not a real path inside $TASKS/$ID (a symlink there is refused whether or not its target stays in the tree)" >&2
+  exit 1
+}
+
 case "$CMD" in
   mint)
     [ -n "$SLUG" ] || { echo "workspace: mint needs --slug" >&2; exit 1; }
@@ -80,7 +94,20 @@ case "$CMD" in
       fi
     fi
     ID="$(date +%Y-%m-%d)-$(echo "$SLUG" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]/-/g' -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')"
+    # mint is the exception to guard-first: it CREATES the workspace, so there is
+    # nothing to resolve when the check has to run. It checks what is already
+    # there - four components, because the .gitignore below is the one mint write
+    # that lands one level ABOVE the task directory - and doing the mkdir first is
+    # not free: under a redirected .harmonia or .harmonia/tasks it creates the
+    # whole tree outside the repository and only then refuses.
+    for c in .harmonia .harmonia/tasks .harmonia/tasks/.gitignore ".harmonia/tasks/$ID"; do
+      [ -L "$REPO/$c" ] && { echo "workspace: refusing to mint - $REPO/$c is a symlink; the task tree must be real directories inside the repository" >&2; exit 1; }
+    done
     mkdir -p "$TASKS/$ID/receipts"
+    # Then the same predicate over the result, once per artifact mint writes:
+    # it re-uses an existing task directory when the date and slug repeat, so a
+    # symlink planted at `minted` or `base-ref` survives to be followed.
+    for r in receipts minted base-ref; do ws_guard "$r"; done
     printf '*\n' > "$TASKS/.gitignore"   # self-ignoring in every target repo (KTD10)
     date -u +%Y-%m-%dT%H:%M:%SZ > "$TASKS/$ID/minted"
     ref="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo none)"
@@ -92,6 +119,7 @@ case "$CMD" in
     ;;
   clear-span)
     ID="$(pick)" || exit $?
+    ws_guard
     D="$TASKS/$ID"
     cleared=""
     for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations; do
@@ -108,6 +136,8 @@ case "$CMD" in
     ;;
   accept)
     ID="$(pick)" || exit $?
+    ws_guard accepted
+    ws_guard base-ref   # the base decides the digest this marker records, so a redirect makes the developer's own consent record attest to a base they never chose
     base="$(parse_base_ref "$(cat "$TASKS/$ID/base-ref" 2>/dev/null)")"
     if ! base_resolves "$REPO" "$base"; then
       echo "workspace: cannot accept - base ref '$base' does not resolve; no acceptance marker written" >&2
@@ -119,8 +149,10 @@ case "$CMD" in
     ;;
   reject)
     ID="$(pick)" || exit $?
+    ws_guard rejected
     [ -n "$REASON" ] || { echo "workspace: reject needs --reason <text>" >&2; exit 1; }
     case "$REASON" in *$'\n'*|*$'\r'*) echo "workspace: --reason must be a single line" >&2; exit 1 ;; esac  # SEC-1: a multi-line reason could forge a second digest: line in the marker
+    ws_guard base-ref   # same reason as accept: the rejection marker carries a digest too
     base="$(parse_base_ref "$(cat "$TASKS/$ID/base-ref" 2>/dev/null)")"
     if ! base_resolves "$REPO" "$base"; then
       echo "workspace: cannot reject - base ref '$base' does not resolve; no rejection marker written" >&2
@@ -132,6 +164,15 @@ case "$CMD" in
     ;;
   verify-acceptance)
     ID="$(pick)" || exit $?
+    # This command writes nothing, so no escape detector can notice it reading
+    # the wrong bytes - what is wrong is the VERDICT, and skills/capture/SKILL.md:11
+    # gates on it. Guard-first covers every file it reads, not only the ones
+    # something writes. Measured on the build that guarded the writers alone:
+    # `accepted` symlinked at a planted marker outside the repository answered
+    # `acceptance verified` at exit 0, and the remedy that path's own message
+    # names - re-accept, which supersedes - had by then been closed by the same
+    # guards, leaving the forged state with no way out.
+    for f in rejected accepted base-ref; do ws_guard "$f"; done
     if [ -f "$TASKS/$ID/rejected" ]; then
       reason="$(sed -n 's/^reason: //p' "$TASKS/$ID/rejected" | head -1)"
       recorded="$(sed -n 's/^digest: //p' "$TASKS/$ID/rejected" | head -1)"
@@ -167,11 +208,13 @@ case "$CMD" in
     ID="$(pick)" || exit $?
     marker=done
     [ "$CMD" = abandon ] && marker=abandoned
+    ws_guard "$marker"
     date -u +%Y-%m-%dT%H:%M:%SZ > "$TASKS/$ID/$marker"
     echo "$ID $marker"
     ;;
   record-test-hashes)
     ID="$(pick)" || exit $?
+    ws_guard test-hashes
     ( cd "$REPO" && { git ls-files; git ls-files --others --exclude-standard; } \
         | grep -E '(^tests?/|\.bats$|[._]test\.|[._]spec\.)' | sort -u \
         | xargs -r sha256sum 2>/dev/null ) > "$TASKS/$ID/test-hashes"
@@ -179,6 +222,14 @@ case "$CMD" in
     ;;
   verify-test-hashes)
     ID="$(pick)" || exit $?
+    # Two files, two guards. `violations` is the write this command may make;
+    # `test-hashes` is the manifest it exists to READ, and the comment that used
+    # to sit alone on this line claimed the read was covered while naming the
+    # other file. Measured against a genuinely edited recorded test: the honest
+    # manifest reports the KTD12 violation, and one symlinked outside the
+    # repository reports `test hashes verified` and the violation disappears.
+    ws_guard violations
+    ws_guard test-hashes
     H="$TASKS/$ID/test-hashes"
     [ -f "$H" ] || { echo "workspace: no recorded test hashes - run record-test-hashes after the test-engineer turn" >&2; exit 1; }
     if [ ! -s "$H" ]; then

@@ -7,8 +7,8 @@
 # it only the `- run:` shape is checked.
 # Exit: 0 criteria valid (with --run: every criterion passed); 1 invalid, a
 # criterion failed (per-criterion report, receipt still written), or the receipt
-# itself could not be written; 3 cannot-check (no scope declaration at the
-# contract path).
+# itself could not be written or would have landed outside the workspace; 3
+# cannot-check (no scope declaration at the contract path).
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/base-ref-lib.sh"
 
@@ -47,6 +47,15 @@ fi
 TASK_ID="$(basename "$WS")"
 BASE="HEAD"
 if [ -f "$WS/base-ref" ]; then
+  # The fifth and last base-ref reader to be guarded. It is not a marker and
+  # nothing writes it here, but it supplies the base this gate's receipt attests
+  # to, so a redirect makes the receipt claim a tree the caller never named.
+  # ws_guard is defined further down, next to the receipt writer it was built
+  # for, so the predicate is called directly rather than moved.
+  ws_contained "$WS" base-ref || {
+    echo "check-criteria: FAIL - base-ref is not a real path inside the task workspace $WS (refusing to take a base from outside it)"
+    exit 1
+  }
   BASE="$(parse_base_ref "$(cat "$WS/base-ref")")"
   [ -n "$BASE" ] || BASE="HEAD"
 fi
@@ -64,16 +73,29 @@ NTOTAL=0
 NFAILED=0
 
 # One writer, two gate names: the run mode's result is code-dependent and must
-# not travel under the freshness-waived `check-criteria` name (bin/coverage/gate.sh:82)
+# not travel under the freshness-waived `check-criteria` name (the gate-name waiver in bin/coverage/gate.sh)
 # or clobber the implement-stage shape receipt.
 RECEIPT="check-criteria"
 [ "$RUN" -eq 1 ] && RECEIPT="criteria-run"
+# The workspace PATH has not earned trust either (FU-16): a symlink anywhere on
+# the way to it redirects this write, and the writer's own exit status cannot see
+# where the bytes went. Both call sites and both modes route through here - shape
+# mode reaches the same writer at every implement round, which is the more
+# frequent of the two. Exit 1 like the I/O-failure refusal below, not 3:
+# skills/review/SKILL.md:12 reads 3 as "there was no scope declaration to run".
+ws_guard() {   # <rel-under-the-workspace>
+  ws_contained "$WS" "$1" && return 0
+  echo "check-criteria: FAIL - $1 is not a real path inside the task workspace $WS (refusing to write through it)"
+  exit 1
+}
 # The receipt is the only proof this gate ran (KTD7), so a write that cannot land
 # is an I/O failure of the gate itself: fatal at either call site, and never a
 # summary line announcing a receipt that is not there. What is in the way stays
 # there - clearing the path would destroy the diagnostic to force the write.
 write_receipt() {   # $1 = status
+  ws_guard receipts   # the mkdir below creates a directory outside through a redirected receipts/
   mkdir -p "$WS/receipts"
+  ws_guard "receipts/$RECEIPT.json"
   cat > "$WS/receipts/$RECEIPT.json" <<EOF
 {
   "gate": "$RECEIPT",
