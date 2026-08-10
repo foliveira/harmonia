@@ -1108,6 +1108,80 @@ EOF
   [[ "$output" == *"check-criteria: OK"* ]]
 }
 
+@test "a base-ref VALUE supplied by a repository never reaches git diff as an option" {
+  # B1. Every guard on base-ref so far tests its PATH - whether the file is
+  # redirected. This is its CONTENT. `diff_digest` is `git -C R diff "$BASE"`,
+  # so a base-ref of `ref: --output=<path>` makes git write that path: outside
+  # the repository, with no symlink, no local write access and no .git
+  # tampering. Shape mode is the vector - deliberately not provenance-guarded,
+  # and it runs at every implement round.
+  local h="$BATS_TEST_TMPDIR/bv-host" c="$BATS_TEST_TMPDIR/bv-clone"
+  local w="$h/.harmonia/tasks/T"
+  local victim="$BATS_TEST_TMPDIR/bv-victim.txt"
+  printf 'PRECIOUS USER DATA\n' > "$victim"
+  local before; before="$(cat "$victim")"
+
+  mkdir -p "$w/receipts"
+  printf 'x\n' > "$h/README.md"
+  cat > "$w/scope.md" <<'EOS'
+## Success Criteria
+- run: true
+EOS
+  printf 'ref: --output=%s\n' "$victim" > "$w/base-ref"
+  git -C "$h" init -q
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm x
+  git clone -q "$h" "$c"
+  local cw="$c/.harmonia/tasks/T"
+  git -C "$c" ls-files --error-unmatch -- ".harmonia/tasks/T/base-ref" >/dev/null   # the value really arrived tracked
+  [ "$(bash "$REPO_ROOT/bin/workspace.sh" resolve --repo "$c")" = T ]               # and this workspace is the one that resolves
+
+  # Shape mode: executes nothing, so nothing here should touch the filesystem
+  # outside the workspace at all.
+  run bash "$CHECK" --workspace "$cw" --repo "$c" </dev/null
+  echo "shape: status=$status"
+  echo "$output"
+  [ "$(cat "$victim")" = "$before" ]
+
+  # Run mode, and the relative call shape the skills actually use.
+  run bash "$CHECK" --run --workspace "$cw" --repo "$c" </dev/null
+  echo "run: status=$status"
+  echo "$output"
+  [ "$(cat "$victim")" = "$before" ]
+
+  ( cd "$c" && run bash "$CHECK" --workspace ".harmonia/tasks/T" --repo "." </dev/null )
+  [ "$(cat "$victim")" = "$before" ]
+}
+
+@test "an unresolvable base-ref still digests as the empty diff rather than failing the gate" {
+  # The accept side of the guard above, and the reason it may not simply refuse:
+  # `mint` writes `ref: none` when `git rev-parse HEAD` fails, so a hand-made or
+  # minted workspace in a NON-git tree carries an unresolvable base by design.
+  # Today that yields the empty-diff digest because `git diff none` fails and
+  # produces no output; the fix must keep that byte-identical, not turn a
+  # shipped shape into a gate failure.
+  local ng="$BATS_TEST_TMPDIR/bv-nogit" ws
+  ws="$ng/.harmonia/tasks/2026-08-01-hand"
+  mkdir -p "$ws/receipts"
+  printf 'ref: none\n' > "$ws/base-ref"
+  local ok="$BATS_TEST_TMPDIR/BV-OK"; rm -f "$ok"
+  cat > "$ws/scope.md" <<EOF
+## Success Criteria
+- run: touch "$ok" && echo fine
+EOF
+  run bash "$CHECK" --run --workspace "$ws" --repo "$ng" </dev/null
+  echo "status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$ok" ]
+  [[ "$output" == *"check-criteria: OK"* ]]
+  # e3b0c442... is sha256 of the empty input: the digest this shape has always
+  # recorded. Pinned as a literal so a fix that quietly substitutes some other
+  # constant is red here.
+  local empty; empty="$(printf '' | sha256sum | awk '{print $1}')"
+  [ "$(jq -r .diff_digest "$ws/receipts/criteria-run.json")" = "$empty" ]
+}
+
 @test "the provenance guard fails closed when git answers wrongly rather than not at all" {
   # B2, round 3. Round 2 closed the seven triggers where git FAILS. These are the
   # ones where git SUCCEEDS and answers wrongly, plus the two filesystem shapes

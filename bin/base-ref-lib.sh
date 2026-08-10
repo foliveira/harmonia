@@ -14,11 +14,37 @@ parse_base_ref() { local v="$1"; printf '%s' "${v#ref: }"; }
 # True when <ref> resolves to a commit in <repo>. ^{commit} forces object
 # existence - bare rev-parse --verify accepts any well-formed 40-hex sha
 # unseen (recorded in the 2026-07-03-gate-baseref-guard boundary).
-base_resolves() { git -C "$1" rev-parse --verify --quiet "$2^{commit}" >/dev/null; }
+#
+# A dash-leading value is refused before git is asked anything. The base-ref
+# file's CONTENT is repository-suppliable, and every git command here takes it
+# in argument position, where a value that starts with `-` is an OPTION rather
+# than a ref. Git refnames cannot begin with `-`, so nothing legitimate is lost.
+base_resolves() {
+  case "$2" in -*) return 1 ;; esac
+  git -C "$1" rev-parse --verify --quiet "$2^{commit}" >/dev/null
+}
 
 # The one diff-digest formula: gate receipts, check-criteria receipts,
 # receipt verification, and the acceptance marker all hash these bytes.
-diff_digest() { git -C "$1" diff "$2" 2>/dev/null | sha256sum | awk '{print $1}'; }
+#
+# The base is verified HERE rather than only at the call sites, because this is
+# the sink: `git diff --output=<path>` writes that path, and a repository that
+# commits `ref: --output=/somewhere` in its workspace's base-ref reaches this
+# function through shape mode - which executes nothing, is deliberately not
+# provenance-guarded, and runs at every implement round. Measured from a clone:
+# a file outside the repository truncated at exit 0 under `check-criteria: OK`,
+# with no symlink and no local write access. Four of the five call sites already
+# gated and lose nothing; bin/check-criteria.sh was the one that did not.
+#
+# An unresolvable base yields the empty-diff digest instead of an error because
+# that is byte-identical to what this has always returned for the shipped shape
+# it describes: `mint` writes `ref: none` in a non-git tree, and `git diff none`
+# already failed to empty output. The guard changes where the emptiness comes
+# from, not what any legitimate caller records.
+diff_digest() {
+  base_resolves "$1" "$2" || { printf '' | sha256sum | awk '{print $1}'; return 0; }
+  git -C "$1" diff "$2" 2>/dev/null | sha256sum | awk '{print $1}'
+}
 
 # True when <ws> is a real task workspace and <rel> (optional) is a path that
 # will be written inside it - the one containment test every workspace mutation
