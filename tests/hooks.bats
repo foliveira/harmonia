@@ -877,6 +877,348 @@ EOS
   done
 }
 
+# --- the contents have not earned it either: clone-supplied execution ---------
+# `--run` executes the `- run:` lines of $WS/scope.md verbatim, and a repository
+# you clone can ship one. Reading a stranger's repo becomes code execution.
+#
+# Two constructions of the same class, because a guard can pass one and be walked
+# past by the other. The first commits a COMPLETE-looking workspace - scope.md,
+# minted and base-ref all tracked - so a guard keyed on the presence of a mint
+# marker is red on it. The second tracks a SYMLINK at .harmonia/tasks with the
+# payload one directory over, so the path the caller is handed and the file that
+# will actually execute are tracked at different paths: that one reds a guard
+# keyed on the literal <ws>/scope.md path and one keyed on the
+# `git ls-files -- "$WS"` directory pathspec, which the first passes (measured -
+# a literal-path key is green on the first probe and red on the second). Neither
+# proves a guard resolves in general; each probe depth only rules out the keys
+# shallower than it.
+#
+# The accept side is three-quarters of this test on purpose. Every workspace this
+# repo mints is untracked-inside-a-git-repo, and a guard that refuses when git is
+# present, when the file is not gitignored, or when stdin is not a terminal also
+# passes both reject probes while breaking every real round. Shape mode is here
+# for the same reason in the other direction: it executes nothing, so refusing
+# there is over-wide, and the same rule placed before the mode split reds :136.
+
+@test "run mode refuses to execute a scope declaration that arrived with the repository" {
+  ID=2026-01-01-innocuous-refactor
+  SENT="$BATS_TEST_TMPDIR/SENTINEL"
+
+  for probe in plain tracked-symlink; do
+    H="$BATS_TEST_TMPDIR/hostile-$probe"
+    C="$BATS_TEST_TMPDIR/clone-$probe"
+    mkdir -p "$H"
+    printf 'x\n' > "$H/README.md"
+    case "$probe" in
+      plain)
+        PAY="$H/.harmonia/tasks/$ID"; TRACKED=".harmonia/tasks/$ID/scope.md"; MODE=100644; MPATH=".harmonia/tasks/$ID"
+        mkdir -p "$PAY" ;;
+      tracked-symlink)
+        PAY="$H/payload/.harmonia/tasks/$ID"; TRACKED="payload/.harmonia/tasks/$ID/scope.md"; MODE=120000; MPATH=".harmonia/tasks"
+        mkdir -p "$PAY" "$H/.harmonia"
+        ln -s "../payload/.harmonia/tasks" "$H/.harmonia/tasks" ;;
+    esac
+    cat > "$PAY/scope.md" <<EOF
+## Success Criteria
+- run: touch "$SENT" && echo owned
+EOF
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$PAY/minted"
+    printf 'ref: none\n' > "$PAY/base-ref"
+    git -C "$H" init -q
+    git -C "$H" add -A -f
+    git -C "$H" -c user.email=t@t -c user.name=t commit -qm x
+    git clone -q "$H" "$C"
+    CW="$C/.harmonia/tasks/$ID"
+
+    # The fixture asserts what it is FOR, four ways: without these a broken
+    # hostile repo reads as a guard that works.
+    echo "--- hostile clone: $probe"
+    git -C "$C" ls-files --error-unmatch -- "$TRACKED" >/dev/null   # the payload really arrived tracked...
+    [ "$(git -C "$C" ls-files -s -- "$MPATH" | awk '{print $1}' | head -1)" = "$MODE" ]   # ...at the mode this probe intends
+    [ -f "$CW/scope.md" ]                                          # and is reachable at the workspace path
+    [ "$(bash "$REPO_ROOT/bin/workspace.sh" resolve --repo "$C")" = "$ID" ]   # which is the one resolve selects
+
+    rm -f "$SENT"
+    run bash "$CHECK" --run --workspace "$CW" --repo "$C" </dev/null
+    echo "status=$status"
+    echo "$output"
+    [ ! -e "$SENT" ]                                 # the clone's command did not run
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"check-criteria: OK"* ]]
+
+    # Shape mode executes nothing, so it must still pass on the same clone: this
+    # is the over-reach probe, and it is also what keeps a containment rule from
+    # standing in for provenance - the redirect here stays inside the clone.
+    rm -f "$SENT"
+    run bash "$CHECK" --workspace "$CW" --repo "$C" </dev/null
+    echo "shape-mode status=$status"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    [ ! -e "$SENT" ]
+  done
+
+  # Accept side 1: a HAND-MADE workspace in a git repo (tests/hooks.bats:19
+  # makes them with mkdir -p, so this is the shipped shape) whose scope.md the
+  # developer wrote. Same repo as the reject probe above, one directory over.
+  A="$BATS_TEST_TMPDIR/clone-plain/.harmonia/tasks/2026-08-01-mine"
+  mkdir -p "$A"
+  OK1="$BATS_TEST_TMPDIR/OK-in-git"; rm -f "$OK1"
+  cat > "$A/scope.md" <<EOF
+## Success Criteria
+- run: touch "$OK1" && echo fine
+EOF
+  run bash "$CHECK" --run --workspace "$A" --repo "$BATS_TEST_TMPDIR/clone-plain" </dev/null
+  echo "accept in-git status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$OK1" ]
+  [[ "$output" == *"check-criteria: OK"* ]]
+
+  # Accept side 2: a workspace in a tree that is no git checkout at all - there
+  # is no index to ask, and :571 requires a non-git --repo to work.
+  NG="$BATS_TEST_TMPDIR/nogit"
+  mkdir -p "$NG/.harmonia/tasks/2026-08-01-hand"
+  if git -C "$NG" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "fixture unusable: the non-git tree is inside a git work tree" >&2
+    return 1
+  fi
+  OK2="$BATS_TEST_TMPDIR/OK-no-git"; rm -f "$OK2"
+  cat > "$NG/.harmonia/tasks/2026-08-01-hand/scope.md" <<EOF
+## Success Criteria
+- run: touch "$OK2" && echo fine
+EOF
+  run bash "$CHECK" --run --workspace "$NG/.harmonia/tasks/2026-08-01-hand" --repo "$NG" </dev/null
+  echo "accept non-git status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$OK2" ]
+}
+
+@test "the provenance guard fails closed when git cannot be trusted to answer" {
+  # The guard above asks git whether scope.md is tracked and reads a non-zero
+  # exit as "no repository here, so this file is the user's". That inference is
+  # only sound when git failed because there really is no repository. Seven ways
+  # to make git answer wrongly over a clone whose payload really is tracked -
+  # four from the environment, three from the repository itself - and every one
+  # of them executed the payload on the build that shipped the guard.
+  local h="$BATS_TEST_TMPDIR/fc-host" c="$BATS_TEST_TMPDIR/fc-clone"
+  local id=2026-01-01-innocuous w="$h/.harmonia/tasks/2026-01-01-innocuous"
+  local sent="$BATS_TEST_TMPDIR/FC-SENTINEL"
+  mkdir -p "$w/receipts"
+  printf 'x\n' > "$h/README.md"
+  cat > "$w/scope.md" <<EOF
+## Success Criteria
+- run: touch "$sent" && echo owned
+EOF
+  git -C "$h" init -q
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm x
+  git clone -q "$h" "$c"
+  local cw="$c/.harmonia/tasks/$id"
+  # The fixture is only meaningful if the payload really arrived tracked.
+  git -C "$c" ls-files --error-unmatch -- ".harmonia/tasks/$id/scope.md" >/dev/null
+
+  probe_refuses() {   # <label> [env assignments...]
+    local label="$1"; shift
+    rm -f "$sent"
+    run env "$@" bash "$CHECK" --run --workspace "$cw" --repo "$c" </dev/null
+    echo "--- $label: status=$status"
+    echo "$output"
+    [ ! -e "$sent" ]
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"check-criteria: OK"* ]]
+  }
+
+  # RETIRED by scope.md's round-9 narrowing, and ASSERTED rather than unpinned: in
+  # each of these git opens no repository at all, so there is nothing for the
+  # payload to have been carried BY. That is the same exposure as a delivery that
+  # carries no `.git`, which this task declares out of scope. A build that still
+  # refuses them is red here, so the retirement cannot be reversed by accident.
+  probe_accepts() {   # <label> [env assignments...]
+    local label="$1"; shift
+    rm -f "$sent"
+    run env "$@" bash "$CHECK" --run --workspace "$cw" --repo "$c" </dev/null
+    echo "--- $label (retired, must accept): status=$status"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    [ -e "$sent" ]
+  }
+
+  # The control: untampered, this clone is already refused. Without it a build
+  # that refuses everything would look like a pass on all seven cells below.
+  probe_refuses untampered
+
+  # Supplied by the caller's environment. GIT_WORK_TREE and GIT_INDEX_FILE are
+  # not the same failure as the other two and are listed separately for it:
+  # rev-parse --is-inside-work-tree answers `true` at exit 0 under both, so they
+  # defeat `git ls-files` rather than repository discovery, and a fix that only
+  # makes rev-parse failures fail closed leaves these two executing.
+  # /nonexistent only proves the discovery-fails path. A REAL, healthy decoy is
+  # the form that matters: git succeeds and lies - the cwd is the decoy's work
+  # tree so the toplevel check passes, ls-files misses against the decoy index,
+  # and its history is walkable and does not contain the payload. Measured: with
+  # the GIT_* names dropped from the unset, /nonexistent still refuses and this
+  # one executes.
+  probe_refuses GIT_DIR GIT_DIR=/nonexistent
+  local decoy="$BATS_TEST_TMPDIR/fc-decoy"
+  mkdir -p "$decoy"
+  git -C "$decoy" init -q
+  printf 'z\n' > "$decoy/z"
+  git -C "$decoy" add -A
+  git -C "$decoy" -c user.email=t@t -c user.name=t commit -qm z
+  probe_refuses GIT_DIR-real "GIT_DIR=$decoy/.git"
+  probe_refuses GIT_WORK_TREE "GIT_WORK_TREE=$BATS_TEST_TMPDIR"
+  probe_refuses GIT_INDEX_FILE GIT_INDEX_FILE=/dev/null
+  probe_refuses GIT_CEILING_DIRECTORIES "GIT_CEILING_DIRECTORIES=$c"
+
+  # Supplied by the repository being examined, which is the side the threat
+  # model is actually about: a clone carries its own .git.
+  sed -i 's/repositoryformatversion = 0/repositoryformatversion = 99/' "$c/.git/config"
+  probe_accepts core.repositoryformatversion
+  sed -i 's/repositoryformatversion = 99/repositoryformatversion = 0/' "$c/.git/config"
+
+  mv "$c/.git" "$c/.gitreal"
+  printf 'gitdir: /nonexistent\n' > "$c/.git"
+  probe_accepts dangling-gitfile
+  rm -f "$c/.git"; mv "$c/.gitreal" "$c/.git"
+
+  # uid 0 ignores the mode, so this cell cannot be constructed as root.
+  if [ "$(id -u)" -ne 0 ]; then
+    chmod 000 "$c/.git"
+    probe_accepts unreadable-git-dir
+    chmod -R 755 "$c/.git"
+  fi
+
+  # The accept side, and the reason the fix walks for .git in shell instead of
+  # asking git: a tree with no repository above it is the one case where a git
+  # failure really does mean "this file is the user's". A build that fails
+  # closed by treating every git error as tracked is red here.
+  local ng="$BATS_TEST_TMPDIR/fc-nogit/.harmonia/tasks/2026-08-01-hand"
+  mkdir -p "$ng"
+  local ok="$BATS_TEST_TMPDIR/FC-OK"; rm -f "$ok"
+  cat > "$ng/scope.md" <<EOF
+## Success Criteria
+- run: touch "$ok" && echo fine
+EOF
+  run bash "$CHECK" --run --workspace "$ng" --repo "$BATS_TEST_TMPDIR/fc-nogit" </dev/null
+  echo "--- accept non-git: status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$ok" ]
+  [[ "$output" == *"check-criteria: OK"* ]]
+}
+
+@test "the provenance guard fails closed when git answers wrongly rather than not at all" {
+  # B2, round 3. Round 2 closed the seven triggers where git FAILS. These are the
+  # ones where git SUCCEEDS and answers wrongly, plus the two filesystem shapes
+  # the walk steps over. Delivery is by copy rather than clone throughout, and
+  # that is honest rather than incidental: a .git path cannot be tracked and
+  # clone writes its own config and index, so none of these arrive by `git clone`
+  # - they arrive by archive, tarball, rsync or mount, which is the delivery
+  # SECURITY.md already names as carrying .git. Three of them need no adversary
+  # at all: an interrupted operation produces them.
+  local src="$BATS_TEST_TMPDIR/fw-src"
+  local id=2026-01-01-innocuous
+  local sent="$BATS_TEST_TMPDIR/FW-SENTINEL"
+  mkdir -p "$src/.harmonia/tasks/$id/receipts"
+  printf 'x\n' > "$src/README.md"
+  cat > "$src/.harmonia/tasks/$id/scope.md" <<EOF
+## Success Criteria
+- run: touch "$sent" && echo owned
+EOF
+  git -C "$src" init -q
+  git -C "$src" add -A -f
+  git -C "$src" -c user.email=t@t -c user.name=t commit -qm x
+
+  # <label> <tamper-fn>: fresh copy per cell, so cells cannot contaminate.
+  fw_probe() {
+    local label="$1" tamper="$2" t="$BATS_TEST_TMPDIR/fw-$1"
+    rm -rf "$t"; cp -a "$src" "$t"
+    "$tamper" "$t"
+    rm -f "$sent"
+    run bash "$CHECK" --run --workspace "$t/.harmonia/tasks/$id" --repo "$t" </dev/null
+    echo "--- $label: status=$status"
+    echo "$output"
+    [ ! -e "$sent" ]
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"check-criteria: OK"* ]]
+  }
+
+  t_none()      { :; }
+  t_bare()      { git -C "$1" config core.bare true; }
+  t_worktree()  { git -C "$1" config core.worktree /tmp; }
+  t_noindex()   { rm -f "$1/.git/index"; }
+  t_badindex()  { printf 'GARBAGE' > "$1/.git/index"; }
+  t_dangling()  { rm -rf "$1/.git"; ln -s /nonexistent-git-target "$1/.git"; }
+  t_looping()   { rm -rf "$1/.git"; ln -s .git "$1/.git"; }
+
+  fw_probe control  t_none        # the copy itself is already refused
+  fw_probe bare     t_bare
+  fw_probe worktree t_worktree
+  fw_probe noindex  t_noindex
+  fw_probe badindex t_badindex
+  # A dangling or looping .git moves to the ACCEPT side under scope.md's round-9
+  # narrowing: git opens no repository, so nothing carries the payload. Asserted,
+  # not merely unpinned.
+  fw_accepts() {   # <label> <tamper-fn>
+    local t="$BATS_TEST_TMPDIR/fwa-$1"
+    rm -rf "$t"; cp -a "$src" "$t"
+    "$2" "$t"
+    rm -f "$sent"
+    run bash "$CHECK" --run --workspace "$t/.harmonia/tasks/$id" --repo "$t" </dev/null
+    echo "--- $1 (retired, must accept): status=$status"
+    echo "$output"
+    [ "$status" -eq 0 ]
+    [ -e "$sent" ]
+  }
+  fw_accepts dangling t_dangling
+  fw_accepts looping  t_looping
+  if [ "$(id -u)" -ne 0 ]; then
+    t_unreadable() { chmod 000 "$1/.git/index"; }
+    fw_probe unreadable t_unreadable
+  fi
+}
+
+@test "a legitimate workspace is not called tracked when git merely cannot answer" {
+  # The other direction of the same predicate, and the reason fail-closed needs a
+  # separate message rather than reusing the provenance one. This workspace is
+  # minted, gitignored and has never been tracked; a corrupt index must not let
+  # it verify, and must not tell the developer their own marker "arrived with the
+  # repository", which is false and sends them to a remedy that cannot work.
+  local L="$BATS_TEST_TMPDIR/fw-legit"
+  mkdir -p "$L"
+  git -C "$L" init -q
+  printf 'a\n' > "$L/f.sh"
+  git -C "$L" add -A
+  git -C "$L" -c user.email=t@t -c user.name=t commit -qm b
+  local ws; ws="$(bash "$REPO_ROOT/bin/workspace.sh" mint --repo "$L" --slug mine)"
+  bash "$REPO_ROOT/bin/workspace.sh" accept --repo "$L" --task "$ws"
+
+  run bash "$REPO_ROOT/bin/workspace.sh" verify-acceptance --repo "$L" --task "$ws"
+  [ "$status" -eq 0 ]                      # honest baseline: it verifies
+
+  bash "$REPO_ROOT/bin/workspace.sh" record-test-hashes --repo "$L" --task "$ws"
+  run bash "$REPO_ROOT/bin/workspace.sh" verify-test-hashes --repo "$L" --task "$ws"
+  [ "$status" -eq 0 ]                      # honest baseline for the manifest too
+
+  printf 'GARBAGE' > "$L/.git/index"
+  run bash "$REPO_ROOT/bin/workspace.sh" verify-acceptance --repo "$L" --task "$ws"
+  echo "corrupt-index acceptance: status=$status"
+  echo "$output"
+  [ "$status" -ne 0 ]                      # fails closed
+  [[ "$output" != *"acceptance verified"* ]]
+  [[ "$output" != *"arrived with the repository"* ]]   # and does not lie about why
+
+  # The manifest carries the identical pair of refusals and is reached by a
+  # separate branch, so it needs its own cell rather than inheriting this one.
+  run bash "$REPO_ROOT/bin/workspace.sh" verify-test-hashes --repo "$L" --task "$ws"
+  echo "corrupt-index hashes: status=$status"
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"test hashes verified"* ]]
+  [[ "$output" != *"arrived with the repository"* ]]
+}
+
 @test "the criteria gate refuses a base-ref that resolves outside the workspace" {
   # M1's third reader site. accept and reject are covered in workspace.bats; this
   # is the one that receipts a digest rather than writing a marker, so a redirect
@@ -900,4 +1242,369 @@ EOS
   [ "$status" -ne 0 ]
   [[ "$output" != *"check-criteria: OK"* ]]
   [ ! -f "$ws/receipts/check-criteria.json" ]   # and no receipt claiming the run happened
+}
+
+@test "the receipt audit refuses when git cannot be asked where the receipts came from" {
+  # The undecidable branch of the audit's provenance check. A corrupt index is
+  # not evidence that a receipt was carried, and it is not evidence that it was
+  # not - so the audit refuses and says which of the two it is.
+  local L="$BATS_TEST_TMPDIR/au"
+  mkdir -p "$L"
+  git -C "$L" init -q
+  printf 'a\n' > "$L/f.sh"
+  git -C "$L" add -A
+  git -C "$L" -c user.email=t@t -c user.name=t commit -qm b
+  local id; id="$(bash "$REPO_ROOT/bin/workspace.sh" mint --repo "$L" --slug au)"
+  local ws="$L/.harmonia/tasks/$id"
+  printf 'notes\n' > "$L/notes.md"
+  bash "$REPO_ROOT/bin/coverage/gate.sh" --repo "$L" --workspace "$ws" >/dev/null 2>&1
+  [ -s "$ws/receipts/coverage.json" ]
+  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --repo "$L" --workspace "$ws"
+  [ "$status" -eq 0 ]                       # honest baseline
+
+  printf 'GARBAGE' > "$L/.git/index"
+  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --repo "$L" --workspace "$ws"
+  echo "corrupt index: status=$status"
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"receipts verified"* ]]
+  [[ "$output" != *"tracked in git"* ]]     # not a claim it was carried
+}
+
+@test "a nested repository does not shadow an outer one that carries the file" {
+  # Round 4 B1. The provenance walk used to stop at the FIRST .git at or above
+  # the workspace. One `git init` inside a delivered tree is then the whole
+  # attack: the nested repo answers "not tracked" perfectly truthfully, because
+  # the payload is tracked in the OUTER one, and the walk never asks the outer.
+  # Not caught by requiring the resolved toplevel to equal the directory the walk
+  # found - the nested repo's toplevel legitimately IS that directory.
+  local src="$BATS_TEST_TMPDIR/nst-src"
+  local id=2026-01-01-innocuous
+  local sent="$BATS_TEST_TMPDIR/NST-SENTINEL"
+  mkdir -p "$src/.harmonia/tasks/$id/receipts"
+  printf 'x\n' > "$src/README.md"
+  cat > "$src/.harmonia/tasks/$id/scope.md" <<EOF
+## Success Criteria
+- run: touch "$sent" && echo owned
+EOF
+  git -C "$src" init -q
+  git -C "$src" add -A -f
+  git -C "$src" -c user.email=t@t -c user.name=t commit -qm x
+
+  # Every level between the payload and the real repository root is a position.
+  for pos in ".harmonia" ".harmonia/tasks" ".harmonia/tasks/$id"; do
+    local t="$BATS_TEST_TMPDIR/nst-$(echo "$pos" | tr / _)"
+    rm -rf "$t"; cp -a "$src" "$t"
+    git -C "$t/$pos" init -q
+    rm -f "$sent"
+    run bash "$CHECK" --run --workspace "$t/.harmonia/tasks/$id" --repo "$t" </dev/null
+    echo "--- nested .git at $pos: status=$status"
+    echo "$output"
+    [ ! -e "$sent" ]
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"check-criteria: OK"* ]]
+  done
+
+  # The control: without the nested repo this delivery is already refused, so a
+  # build that refuses everything cannot pass the cells above by accident.
+  local c="$BATS_TEST_TMPDIR/nst-control"
+  rm -rf "$c"; cp -a "$src" "$c"
+  rm -f "$sent"
+  run bash "$CHECK" --run --workspace "$c/.harmonia/tasks/$id" --repo "$c" </dev/null
+  [ ! -e "$sent" ]
+  [ "$status" -ne 0 ]
+
+  # And the accept side of the same walk: a workspace inside a repository that
+  # does NOT carry it must still run, even though an outer repository exists.
+  local ok="$BATS_TEST_TMPDIR/NST-OK"; rm -f "$ok"
+  local L="$BATS_TEST_TMPDIR/nst-legit"
+  mkdir -p "$L"
+  git -C "$L" init -q
+  printf 'a\n' > "$L/f.sh"
+  git -C "$L" add -A
+  git -C "$L" -c user.email=t@t -c user.name=t commit -qm b
+  local lw; lw="$L/.harmonia/tasks/2026-08-01-hand"
+  mkdir -p "$lw"
+  cat > "$lw/scope.md" <<EOF
+## Success Criteria
+- run: touch "$ok" && echo fine
+EOF
+  run bash "$CHECK" --run --workspace "$lw" --repo "$L" </dev/null
+  echo "accept: status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$ok" ]
+}
+
+@test "a repository whose HEAD cannot be read is not consulted" {
+  # Round 4 B2. The HEAD consultation added last round never tested git's exit
+  # status, so a failure with empty stdout read as "the file is yours" - the same
+  # "a failure wearing the shape of an answer" defect the index branch one line
+  # above had already fixed. Neither cell needs an adversary: an interrupted copy
+  # produces both.
+  local src="$BATS_TEST_TMPDIR/hd-src"
+  local id=2026-01-01-innocuous
+  local sent="$BATS_TEST_TMPDIR/HD-SENTINEL"
+  mkdir -p "$src/.harmonia/tasks/$id/receipts"
+  printf 'x\n' > "$src/README.md"
+  cat > "$src/.harmonia/tasks/$id/scope.md" <<EOF
+## Success Criteria
+- run: touch "$sent" && echo owned
+EOF
+  git -C "$src" init -q
+  git -C "$src" add -A -f
+  git -C "$src" -c user.email=t@t -c user.name=t commit -qm x
+
+  # RETIRED by scope.md's round-9 narrowing. The property is now the index or the
+  # tree of the commit CHECKED OUT, and both cells below are repositories with no
+  # readable checked-out commit - so the property has nothing to say about them and
+  # they are accepted. Reaching a verdict here needed a pristine-versus-damaged
+  # discriminator, and every version of that discriminator was wrong in one
+  # direction or the other: an empty object database was fooled by a removed pack
+  # index, and counting commits refused an ordinary repository between `git add`
+  # and its first commit. Asserted on the accept side so the retirement is visible.
+  hd_probe() {   # <label> <tamper>
+    local t="$BATS_TEST_TMPDIR/hd-$1"
+    rm -rf "$t"; cp -a "$src" "$t"
+    rm -f "$t/.git/index"          # force the HEAD path: the index has no answer
+    "$2" "$t"
+    rm -f "$sent"
+    run bash "$CHECK" --run --workspace "$t/.harmonia/tasks/$id" --repo "$t" </dev/null
+    echo "--- $1 (retired, must accept): status=$status"
+    echo "$output"
+    [ -e "$sent" ]
+    [ "$status" -eq 0 ]
+  }
+
+  t_notree() {   # the commit is reachable but its tree object is gone: ls-tree exits 128, stdout empty
+    local tree; tree="$(git -C "$1" rev-parse HEAD^{tree})"
+    rm -f "$1/.git/objects/${tree:0:2}/${tree:2}"
+  }
+  t_norefs() { rm -rf "$1/.git/refs/heads" "$1/.git/packed-refs"; }   # rev-parse HEAD exits 1, exactly as a repo with no commits does
+
+  hd_probe notree t_notree
+  hd_probe norefs t_norefs
+
+  # The accept side that makes those two hard: a repository with no commits also
+  # fails to resolve HEAD, and it is legitimate. What separates them is that a
+  # pristine repository has NO OBJECTS, so it cannot have carried anything.
+  local ok="$BATS_TEST_TMPDIR/HD-OK"; rm -f "$ok"
+  local F="$BATS_TEST_TMPDIR/hd-fresh"
+  mkdir -p "$F/.harmonia/tasks/2026-08-01-hand"
+  git -C "$F" init -q
+  cat > "$F/.harmonia/tasks/2026-08-01-hand/scope.md" <<EOF
+## Success Criteria
+- run: touch "$ok" && echo fine
+EOF
+  run bash "$CHECK" --run --workspace "$F/.harmonia/tasks/2026-08-01-hand" --repo "$F" </dev/null
+  echo "fresh repo: status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$ok" ]
+}
+
+@test "a colon-leading directory name does not turn the provenance guard off" {
+  # Round 6 B1. The walk translates the path as it climbs, and the result goes to
+  # git in PATHSPEC position. A leading `:` is pathspec magic, so git answers
+  # about something else entirely: ls-files rc=1 and ls-tree rc=0-empty, which is
+  # exactly the pair that reads as "not carried". One directory name, on a plain
+  # clone, and every provenance guard in the system is off.
+  local h="$BATS_TEST_TMPDIR/cl-h" c="$BATS_TEST_TMPDIR/cl-c"
+  local sent="$BATS_TEST_TMPDIR/CL-SENTINEL"
+  mkdir -p "$h/:x/.harmonia/tasks/T/receipts"
+  printf 'x\n' > "$h/README.md"
+  cat > "$h/:x/.harmonia/tasks/T/scope.md" <<EOF
+## Success Criteria
+- run: touch "$sent" && echo owned
+EOF
+  git -C "$h" init -q
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm x
+  git clone -q "$h" "$c"
+  git -C "$c" ls-files --error-unmatch -- ':(literal):x/.harmonia/tasks/T/scope.md' >/dev/null
+
+  rm -f "$sent"
+  ( cd "$c" && run bash "$CHECK" --run --workspace ":x/.harmonia/tasks/T" --repo "." </dev/null
+    echo "status=$status"
+    echo "$output" )
+  [ ! -e "$sent" ]
+
+  # The control: the identical fixture with an ordinary directory name is already
+  # refused, so a refuse-everything build cannot pass the cell above by accident.
+  local h2="$BATS_TEST_TMPDIR/cl-h2" c2="$BATS_TEST_TMPDIR/cl-c2"
+  local sent2="$BATS_TEST_TMPDIR/CL-SENTINEL2"
+  mkdir -p "$h2/x/.harmonia/tasks/T/receipts"
+  printf 'x\n' > "$h2/README.md"
+  cat > "$h2/x/.harmonia/tasks/T/scope.md" <<EOF
+## Success Criteria
+- run: touch "$sent2" && echo owned
+EOF
+  git -C "$h2" init -q
+  git -C "$h2" add -A -f
+  git -C "$h2" -c user.email=t@t -c user.name=t commit -qm x
+  git clone -q "$h2" "$c2"
+  rm -f "$sent2"
+  ( cd "$c2" && run bash "$CHECK" --run --workspace "x/.harmonia/tasks/T" --repo "." </dev/null )
+  [ ! -e "$sent2" ]
+}
+
+@test "a repository between git add and its first commit is not called undecidable" {
+  # Round 6 B2, the false-refusal half and the one with no adversary. `git add`
+  # writes blobs, so an ordinary repository after `add` and before its first
+  # commit has objects and no resolvable HEAD - which the object-count
+  # discriminator read as "damaged". Three of the four consumers refused, each
+  # telling the user to make `git status` work when `git status` already exits 0.
+  local L="$BATS_TEST_TMPDIR/pre-commit"
+  mkdir -p "$L/.harmonia/tasks/2026-08-01-hand"
+  git -C "$L" init -q
+  printf 'a\n' > "$L/f.sh"
+  git -C "$L" add -A                       # blobs on disk, still no commit
+  ( cd "$L" && git status >/dev/null )     # the state the refusal told users to repair
+  local ok="$BATS_TEST_TMPDIR/PRE-OK"; rm -f "$ok"
+  cat > "$L/.harmonia/tasks/2026-08-01-hand/scope.md" <<EOF
+## Success Criteria
+- run: touch "$ok" && echo fine
+EOF
+  run bash "$CHECK" --run --workspace "$L/.harmonia/tasks/2026-08-01-hand" --repo "$L" </dev/null
+  echo "status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$ok" ]
+
+  # An orphan branch is the same shape with history present.
+  local O="$BATS_TEST_TMPDIR/orphan"
+  mkdir -p "$O/.harmonia/tasks/2026-08-01-hand"
+  git -C "$O" init -q
+  printf 'a\n' > "$O/f.sh"
+  git -C "$O" add -A
+  git -C "$O" -c user.email=t@t -c user.name=t commit -qm b
+  git -C "$O" checkout -q --orphan fresh
+  local ok2="$BATS_TEST_TMPDIR/ORPHAN-OK"; rm -f "$ok2"
+  cat > "$O/.harmonia/tasks/2026-08-01-hand/scope.md" <<EOF
+## Success Criteria
+- run: touch "$ok2" && echo fine
+EOF
+  run bash "$CHECK" --run --workspace "$O/.harmonia/tasks/2026-08-01-hand" --repo "$O" </dev/null
+  echo "orphan: status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$ok2" ]
+}
+
+@test "a broken repository in an unrelated ancestor does not refuse legitimate work" {
+  # Round 6 M7. The walk climbs to / so that a nested repository cannot shadow the
+  # one that carries the file. The cost, unbounded until now: any ancestor with an
+  # unusable .git - not the delivery, just something above your checkout - made
+  # every run refuse, with the same message telling you to repair a repository
+  # that is not yours.
+  local parent="$BATS_TEST_TMPDIR/anc"
+  local L="$parent/project"
+  mkdir -p "$L/.harmonia/tasks/2026-08-01-hand"
+  git -C "$L" init -q
+  printf 'a\n' > "$L/f.sh"
+  git -C "$L" add -A
+  git -C "$L" -c user.email=t@t -c user.name=t commit -qm b
+  local ok="$BATS_TEST_TMPDIR/ANC-OK"; rm -f "$ok"
+  cat > "$L/.harmonia/tasks/2026-08-01-hand/scope.md" <<EOF
+## Success Criteria
+- run: touch "$ok" && echo fine
+EOF
+  mkdir -p "$parent/.git"                  # an ancestor .git that git cannot use
+  run bash "$CHECK" --run --workspace "$L/.harmonia/tasks/2026-08-01-hand" --repo "$L" </dev/null
+  echo "status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$ok" ]
+
+  # And the nested-repository attack the walk exists for stays closed: here the
+  # unusable repository is the NEAREST one, which is the delivery itself.
+  local sent="$BATS_TEST_TMPDIR/ANC-SENT"
+  local h="$BATS_TEST_TMPDIR/anc-h"
+  mkdir -p "$h/.harmonia/tasks/T/receipts"
+  printf 'x\n' > "$h/README.md"
+  cat > "$h/.harmonia/tasks/T/scope.md" <<EOF
+## Success Criteria
+- run: touch "$sent" && echo owned
+EOF
+  git -C "$h" init -q
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm x
+  printf 'GARBAGE' > "$h/.git/index"       # the delivery's own repository cannot answer
+  rm -f "$sent"
+  run bash "$CHECK" --run --workspace "$h/.harmonia/tasks/T" --repo "$h" </dev/null
+  echo "nearest-unusable: status=$status"
+  echo "$output"
+  [ ! -e "$sent" ]
+  [ "$status" -ne 0 ]
+}
+
+@test "clearing CDPATH before the first cd is what stops a decoy hijacking the guard" {
+  # Round 6 M4. `cd` searches CDPATH before the literal path and lands in the
+  # first match, so a decoy holding the same relative workspace path takes the
+  # guard somewhere else entirely - it inspects the decoy, finds no repository,
+  # and answers "yours". This reds if the unset ever moves back below the cd,
+  # which is the exact defect it was written to fix and which nothing pinned.
+  local h="$BATS_TEST_TMPDIR/cd-h" c="$BATS_TEST_TMPDIR/cd-c"
+  local id=2026-01-01-innocuous
+  local sent="$BATS_TEST_TMPDIR/CD-SENTINEL"
+  mkdir -p "$h/.harmonia/tasks/$id/receipts"
+  printf 'x\n' > "$h/README.md"
+  cat > "$h/.harmonia/tasks/$id/scope.md" <<EOF
+## Success Criteria
+- run: touch "$sent" && echo owned
+EOF
+  git -C "$h" init -q
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm x
+  git clone -q "$h" "$c"
+
+  # The decoy: same relative path, not a repository, first on CDPATH.
+  local decoy="$BATS_TEST_TMPDIR/cd-decoy"
+  mkdir -p "$decoy/.harmonia/tasks/$id"
+  printf '## Success Criteria\n- run: true\n' > "$decoy/.harmonia/tasks/$id/scope.md"
+
+  for form in prefix export; do
+    rm -f "$sent"
+    if [ "$form" = prefix ]; then
+      ( cd "$c" && CDPATH="$decoy" bash "$CHECK" --run --workspace ".harmonia/tasks/$id" --repo "." </dev/null >/dev/null 2>&1 ) || true
+    else
+      ( cd "$c" && export CDPATH="$decoy" && bash "$CHECK" --run --workspace ".harmonia/tasks/$id" --repo "." </dev/null >/dev/null 2>&1 ) || true
+    fi
+    echo "--- CDPATH $form"
+    [ ! -e "$sent" ]
+  done
+}
+
+@test "run mode refuses a base-ref that arrived with the repository" {
+  # The criteria gate's half of the same finding: its receipt attests to a digest
+  # taken against this base, so a repository supplying it decides what the receipt
+  # claims. Run mode only - shape mode executes nothing, and a rule before the
+  # mode split refuses work no one can run, which C4's over-reach probe measures.
+  local h="$BATS_TEST_TMPDIR/cbr-h" c="$BATS_TEST_TMPDIR/cbr-c"
+  mkdir -p "$h/.harmonia/tasks/T/receipts"
+  printf 'a\n' > "$h/f.sh"
+  git -C "$h" init -q
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm b
+  printf 'ref: %s\n' "$(git -C "$h" rev-parse HEAD)" > "$h/.harmonia/tasks/T/base-ref"
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm p
+  git clone -q "$h" "$c"
+  # scope.md is written AFTER the clone, so it is the developer's: this cell has
+  # to reach the base-ref question, and a carried scope.md refuses one step
+  # earlier and would leave the branch under test unexercised.
+  printf '## Success Criteria\n- run: true\n' > "$c/.harmonia/tasks/T/scope.md"
+
+  run bash "$CHECK" --run --workspace "$c/.harmonia/tasks/T" --repo "$c" </dev/null
+  echo "run: status=$status"
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"check-criteria: OK"* ]]
+
+  # Shape mode must still exit 0: it executes nothing, and refusing there is the
+  # over-reach C4 pins.
+  run bash "$CHECK" --workspace "$c/.harmonia/tasks/T" --repo "$c" </dev/null
+  echo "shape: status=$status"
+  echo "$output"
+  [ "$status" -eq 0 ]
 }

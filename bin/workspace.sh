@@ -173,6 +173,16 @@ case "$CMD" in
     # names - re-accept, which supersedes - had by then been closed by the same
     # guards, leaving the forged state with no way out.
     for f in rejected accepted base-ref; do ws_guard "$f"; done
+    # Containment cannot see the other way to be handed a marker you did not
+    # write: not redirected but SHIPPED. A repository can track its own
+    # `accepted` carrying the empty-diff constant - which is exactly the digest
+    # of a fresh clone's untouched tree - and every path then resolves precisely
+    # where it should. Same discriminator as the scope declaration's, because
+    # task workspaces are gitignored and a tracked marker is never one you wrote.
+    acc_reason="$(ws_provenance_reason "$TASKS/$ID" accepted)" || {
+      echo "workspace: refusing to verify acceptance - $acc_reason" >&2
+      exit 1
+    }
     if [ -f "$TASKS/$ID/rejected" ]; then
       reason="$(sed -n 's/^reason: //p' "$TASKS/$ID/rejected" | head -1)"
       recorded="$(sed -n 's/^digest: //p' "$TASKS/$ID/rejected" | head -1)"
@@ -230,6 +240,12 @@ case "$CMD" in
     # repository reports `test hashes verified` and the violation disappears.
     ws_guard violations
     ws_guard test-hashes
+    # And the same shipped-rather-than-redirected route as the acceptance
+    # marker: a tracked empty manifest passes vacuously by design.
+    th_reason="$(ws_provenance_reason "$TASKS/$ID" test-hashes)" || {
+      echo "workspace: refusing to verify test hashes - $th_reason" >&2
+      exit 1
+    }
     H="$TASKS/$ID/test-hashes"
     [ -f "$H" ] || { echo "workspace: no recorded test hashes - run record-test-hashes after the test-engineer turn" >&2; exit 1; }
     if [ ! -s "$H" ]; then

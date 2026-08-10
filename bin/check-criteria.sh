@@ -6,8 +6,9 @@
 # criterion on stdout, and receipted under the gate name `criteria-run`; without
 # it only the `- run:` shape is checked.
 # Exit: 0 criteria valid (with --run: every criterion passed); 1 invalid, a
-# criterion failed (per-criterion report, receipt still written), or the receipt
-# itself could not be written or would have landed outside the workspace; 3
+# criterion failed (per-criterion report, receipt still written), the receipt
+# itself could not be written or would have landed outside the workspace, or
+# --run was pointed at a scope declaration that is tracked in git; 3
 # cannot-check (no scope declaration at the contract path).
 set -u
 . "$(dirname "${BASH_SOURCE[0]}")/base-ref-lib.sh"
@@ -41,6 +42,45 @@ SCOPE="$WS/scope.md"
 if [ ! -f "$SCOPE" ]; then
   echo "check-criteria: no scope declaration at $SCOPE - run the scoper first (R31)" >&2
   exit 3
+fi
+
+# The CONTENTS of a workspace have not earned trust either: --run executes this
+# file's `- run:` lines, and a repository you clone can ship one, so reading a
+# stranger's repo becomes code execution. The `cd` moves into the workspace's
+# PHYSICAL directory before git is asked, because git reads getcwd(): a guard
+# keyed on the literal <ws>/scope.md path, or on the `git ls-files -- "$WS"`
+# directory pathspec, is walked past by a clone that tracks a symlink at
+# .harmonia/tasks with the payload one directory over. Outside a git work tree
+# there is no index to ask, so the file is treated as the user's - a hand-made
+# workspace in a non-git tree is the shipped shape, and the block at
+# tests/hooks.bats is what pins it (the non-git accept cell of the fail-closed
+# block; cited by name rather than line, because this task has moved that line
+# twice and a stale citation was a finding in both prior rounds).
+# Run mode only: shape mode executes nothing, and the same rule before the mode
+# split would refuse work no one can run. Before any write, so a hostile clone
+# leaves no receipt claiming a run happened.
+#
+# The predicate itself lives in bin/base-ref-lib.sh because the acceptance
+# marker and the test-hash manifest need exactly the same question asked of
+# them, and because "git said no" is not the same answer as "there is no
+# repository" - ws_tracked is what separates the two and fails closed between.
+# Two refusals, not one, and both worded in one place (bin/base-ref-lib.sh):
+# "carried" has a remedy and "cannot be asked" does not, and telling a user their
+# own file arrived with the repository when git merely failed to read an index is
+# false and sends them somewhere that cannot help.
+if [ "$RUN" -eq 1 ]; then
+  prov_reason="$(ws_provenance_reason "$WS" scope.md)" || {
+    echo "check-criteria: FAIL - refusing to execute $SCOPE: $prov_reason"
+    exit 1
+  }
+  # base-ref gets the same question, and in run mode only for the same reason
+  # scope.md does: shape mode executes nothing, and a rule placed before the mode
+  # split refuses work no one can run - the over-reach probe of C4 is what
+  # measures that. Here the base selects the tree this run receipts a digest for.
+  base_reason="$(ws_provenance_reason "$WS" base-ref)" || {
+    echo "check-criteria: FAIL - $base_reason"
+    exit 1
+  }
 fi
 
 # Receipt fields (KTD7): task-id, timestamp, digest of the evaluated diff.

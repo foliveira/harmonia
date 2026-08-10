@@ -649,6 +649,58 @@ stage_read() {   # <form>: sets RR (repo) and RW (workspace), with a genuinely e
     fi
   done
 }
+
+@test "verify-acceptance and verify-test-hashes refuse a marker or manifest that arrived with the repository" {
+  # Nothing is redirected here: the hostile repository TRACKS its own acceptance
+  # marker carrying the empty-diff constant, which is what the digest of a fresh
+  # clone's untouched tree really is. Containment cannot see this - every path
+  # resolves exactly where it should.
+  local h="$BATS_TEST_TMPDIR/prov-host" c="$BATS_TEST_TMPDIR/prov-clone"
+  local w="$h/.harmonia/tasks/T"
+  mkdir -p "$w/receipts"
+  printf 'x\n' > "$h/README.md"
+  printf 'ref: HEAD\n' > "$w/base-ref"
+  printf 'ts\ndigest: %s\n' "$(printf '' | sha256sum | awk '{print $1}')" > "$w/accepted"
+  : > "$w/test-hashes"                       # an empty manifest passes vacuously by design
+  git -C "$h" init -q
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm x
+  git clone -q "$h" "$c"
+  git -C "$c" ls-files --error-unmatch -- ".harmonia/tasks/T/accepted" >/dev/null
+  [ "$(bash "$WS_SH" resolve --repo "$c")" = T ]    # the hostile workspace is the one that resolves
+
+  run bash "$WS_SH" verify-acceptance --repo "$c" --task T
+  echo "clone acceptance: status=$status $output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"acceptance verified"* ]]
+
+  run bash "$WS_SH" verify-test-hashes --repo "$c" --task T
+  echo "clone hashes: status=$status $output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"test hashes verified"* ]]
+
+  # The accept side, through the real writers: a minted workspace put through
+  # the real accept and record-test-hashes must still verify, or the guard has
+  # simply broken the acceptance gate for everyone.
+  local L="$BATS_TEST_TMPDIR/prov-ok"
+  mkdir -p "$L"
+  git -C "$L" init -q
+  printf 'a\n' > "$L/f.sh"
+  git -C "$L" add -A
+  git -C "$L" -c user.email=t@t -c user.name=t commit -qm b
+  local id; id="$(bash "$WS_SH" mint --repo "$L" --slug mine)"
+  bash "$WS_SH" accept --repo "$L" --task "$id"
+  run bash "$WS_SH" verify-acceptance --repo "$L" --task "$id"
+  echo "honest acceptance: status=$status $output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"acceptance verified"* ]]
+  bash "$WS_SH" record-test-hashes --repo "$L" --task "$id"
+  run bash "$WS_SH" verify-test-hashes --repo "$L" --task "$id"
+  echo "honest hashes: status=$status $output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"test hashes verified"* ]]
+}
+
 @test "accept and reject refuse a base-ref that resolves outside the workspace" {
   # M1. base-ref decides the digest these two commands WRITE into a marker, so a
   # redirect makes the developer's own consent record attest to a base they never
@@ -731,4 +783,58 @@ stage_read() {   # <form>: sets RR (repo) and RW (workspace), with a genuinely e
   [ "$status" -ne 0 ]
   [[ "$output" != *"acceptance verified"* ]]
   [[ "$output" == *"refusing"* ]]
+}
+
+@test "a provenance refusal names a remedy that actually clears it, for every consumer" {
+  # The claim under audit is that all four consumers name a remedy that works.
+  # It is pinned by FOLLOWING the remedy on all four, not by grepping any of them
+  # for a phrase - the remedy has been wrong twice (`accept`, then
+  # `git rm --cached`) and a wording assertion pins the wrong thing: it goes green
+  # the moment someone deletes the sentence.
+  local real="$BATS_TEST_TMPDIR/rem/r"
+  mkdir -p "$real/.harmonia/tasks/T/receipts"
+  printf 'x\n' > "$real/README.md"
+  printf 'a\n' > "$real/f.sh"
+  local empty; empty="$(printf '' | sha256sum | awk '{print $1}')"
+  printf 'ts\ndigest: %s\n' "$empty" > "$real/.harmonia/tasks/T/accepted"
+  : > "$real/.harmonia/tasks/T/test-hashes"
+  printf 'ref: HEAD\n' > "$real/.harmonia/tasks/T/base-ref"
+  printf '## Success Criteria\n- run: true\n' > "$real/.harmonia/tasks/T/scope.md"
+  cat > "$real/.harmonia/tasks/T/receipts/coverage.json" <<JSON
+{ "gate": "coverage", "task_id": "T", "timestamp": "2026-01-01T00:00:00Z", "diff_digest": "$empty", "status": "pass" }
+JSON
+  git -C "$real" init -q
+  git -C "$real" add -A -f
+  git -C "$real" -c user.email=t@t -c user.name=t commit -qm x
+
+  # All four refuse to begin with.
+  run bash "$WS_SH" verify-acceptance --repo "$real" --task T
+  [ "$status" -ne 0 ]
+  run bash "$WS_SH" verify-test-hashes --repo "$real" --task T
+  [ "$status" -ne 0 ]
+  run bash "$REPO_ROOT/bin/check-criteria.sh" --run --workspace "$real/.harmonia/tasks/T" --repo "$real" </dev/null
+  [ "$status" -ne 0 ]
+  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --repo "$real" --workspace "$real/.harmonia/tasks/T"
+  [ "$status" -ne 0 ]
+
+  # The remedy every one of them names: a freshly minted workspace.
+  local id; id="$(bash "$WS_SH" mint --repo "$real" --slug fresh --new)"
+  local w="$real/.harmonia/tasks/$id"
+  printf '## Success Criteria\n- run: true\n' > "$w/scope.md"
+
+  bash "$WS_SH" accept --repo "$real" --task "$id"
+  run bash "$WS_SH" verify-acceptance --repo "$real" --task "$id"
+  echo "acceptance: $status $output"
+  [ "$status" -eq 0 ]
+  bash "$WS_SH" record-test-hashes --repo "$real" --task "$id"
+  run bash "$WS_SH" verify-test-hashes --repo "$real" --task "$id"
+  echo "hashes: $status $output"
+  [ "$status" -eq 0 ]
+  run bash "$REPO_ROOT/bin/check-criteria.sh" --run --workspace "$w" --repo "$real" </dev/null
+  echo "criteria: $status $output"
+  [ "$status" -eq 0 ]
+  bash "$REPO_ROOT/bin/coverage/gate.sh" --repo "$real" --workspace "$w" >/dev/null 2>&1
+  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --repo "$real" --workspace "$w"
+  echo "receipts: $status $output"
+  [ "$status" -eq 0 ]
 }

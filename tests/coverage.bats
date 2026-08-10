@@ -17,6 +17,11 @@ setup() {
 
   WS="$R/.harmonia/tasks/2026-07-02-covfix"
   mkdir -p "$WS/receipts"
+  # Mirror what mint writes (bin/workspace.sh:111): the tasks tree ignores itself,
+  # so a workspace is never committable. Several tests below commit the whole tree
+  # mid-test, and without this they would track base-ref - a state no minted
+  # workspace can reach, and one the provenance guard correctly refuses.
+  printf '*\n' > "$R/.harmonia/tasks/.gitignore"
   echo "ref: $BASE" > "$WS/base-ref"
 }
 
@@ -988,6 +993,61 @@ JSON
   grep -q '^gate: ' <<<"$output"
 }
 
+@test "the receipt audit refuses receipts that arrived with the repository" {
+  # M2. Nothing is redirected here and containment correctly accepts every path:
+  # the receipts are exactly where receipts belong. What is wrong is that the
+  # repository WROTE them. On a fresh clone with nothing measured locally, the
+  # tier-B honesty gate certifies a tree no gate here ever looked at.
+  local h="$BATS_TEST_TMPDIR/rp-host" c="$BATS_TEST_TMPDIR/rp-clone"
+  local w="$h/.harmonia/tasks/T"
+  local empty; empty="$(printf '' | sha256sum | awk '{print $1}')"
+  mkdir -p "$w/receipts"
+  printf 'x\n' > "$h/README.md"
+  cat > "$w/receipts/coverage.json" <<JSON
+{ "gate": "coverage", "task_id": "T", "timestamp": "2026-01-01T00:00:00Z", "diff_digest": "$empty", "status": "pass" }
+JSON
+  cat > "$w/receipts/criteria-run.json" <<JSON
+{ "gate": "criteria-run", "task_id": "T", "timestamp": "2026-01-01T00:00:00Z", "diff_digest": "$empty", "status": "pass" }
+JSON
+  git -C "$h" init -q
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm x
+  git clone -q "$h" "$c"
+  local cw="$c/.harmonia/tasks/T"
+  git -C "$c" ls-files --error-unmatch -- ".harmonia/tasks/T/receipts/coverage.json" >/dev/null
+  # base-ref written after the clone, so the receipts are what this cell tests:
+  # a carried base-ref refuses one step earlier and the receipt branch would
+  # never run.
+  printf 'ref: HEAD\n' > "$cw/base-ref"
+
+  run bash "$GATE" --verify-receipts --repo "$c" --workspace "$cw"
+  echo "clone absolute: status=$status $output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"receipts verified"* ]]
+
+  ( cd "$c" && run bash "$GATE" --verify-receipts --repo "." --workspace ".harmonia/tasks/T"
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"receipts verified"* ]] )
+
+  # The accept side, through the real gate: a workspace whose receipts this
+  # machine actually wrote must still verify, or the audit is simply broken.
+  local L="$BATS_TEST_TMPDIR/rp-ok"
+  mkdir -p "$L"
+  git -C "$L" init -q
+  printf 'a\n' > "$L/f.sh"
+  git -C "$L" add -A
+  git -C "$L" -c user.email=t@t -c user.name=t commit -qm b
+  local id; id="$(bash "$REPO_ROOT/bin/workspace.sh" mint --repo "$L" --slug mine)"
+  local lw="$L/.harmonia/tasks/$id"
+  printf 'notes\n' > "$L/notes.md"
+  bash "$GATE" --repo "$L" --workspace "$lw" >/dev/null 2>&1
+  [ -s "$lw/receipts/coverage.json" ]
+  run bash "$GATE" --verify-receipts --repo "$L" --workspace "$lw"
+  echo "honest: status=$status $output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"receipts verified"* ]]
+}
+
 @test "an exported CDPATH does not poison the containment predicate" {
   # A minor with a real cost: `cd` ECHOES the directory it lands in when CDPATH
   # is set and the target matches an entry, so the command substitution around it
@@ -1011,4 +1071,44 @@ JSON
     echo "$output"
     [ "$status" -eq 0 ]
     [[ "$output" == *"gate: OK"* ]] )
+}
+
+@test "the gate refuses a base-ref that arrived with the repository" {
+  # Round 6 M2, and the link that made the clone-to-execution chain fire at step 2
+  # of the shipped review sequence. base-ref selects the tree this gate measures,
+  # so a repository that commits its own decides what the changed-file list holds -
+  # on a fresh clone, with no --base given, one line before any provenance guard
+  # used to run. Containment accepts it: the file is exactly where it belongs.
+  local h="$BATS_TEST_TMPDIR/gbr-h" c="$BATS_TEST_TMPDIR/gbr-c"
+  mkdir -p "$h/.harmonia/tasks/T/receipts"
+  printf 'a\n' > "$h/f.sh"
+  git -C "$h" init -q
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm b
+  printf 'ref: %s\n' "$(git -C "$h" rev-parse HEAD)" > "$h/.harmonia/tasks/T/base-ref"
+  git -C "$h" add -A -f
+  git -C "$h" -c user.email=t@t -c user.name=t commit -qm p
+  git clone -q "$h" "$c"
+  git -C "$c" ls-files --error-unmatch -- .harmonia/tasks/T/base-ref >/dev/null
+
+  run bash "$GATE" --repo "$c" --workspace "$c/.harmonia/tasks/T"
+  echo "status=$status"
+  echo "$output"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"gate: OK"* ]]
+  grep -q '^gate: ' <<<"$output"
+
+  # The accept side: a base-ref this machine minted is carried by nothing.
+  local L="$BATS_TEST_TMPDIR/gbr-ok"
+  mkdir -p "$L"
+  git -C "$L" init -q
+  printf 'a\n' > "$L/f.sh"
+  git -C "$L" add -A
+  git -C "$L" -c user.email=t@t -c user.name=t commit -qm b
+  local id; id="$(bash "$REPO_ROOT/bin/workspace.sh" mint --repo "$L" --slug gbr)"
+  printf 'notes\n' > "$L/notes.md"
+  run bash "$GATE" --repo "$L" --workspace "$L/.harmonia/tasks/$id"
+  echo "accept: status=$status $output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"gate: OK"* ]]
 }

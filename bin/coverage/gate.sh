@@ -69,6 +69,7 @@ ws_guard() {   # <rel-under-the-workspace>
 # is true regardless of which argument this call happens to use.
 if [ -n "$WS" ] && [ -f "$WS/base-ref" ]; then
   ws_contained "$WS" base-ref || { echo "gate: cannot measure - base-ref is not a real path inside the task workspace $WS (refusing to take a base from outside it)"; exit 4; }
+  gbase_reason="$(ws_provenance_reason "$WS" base-ref)" || { echo "gate: cannot measure - $gbase_reason"; exit 4; }
   [ "$BASE_GIVEN" -eq 0 ] && BASE="$(cat "$WS/base-ref")"
 fi
 BASE="$(parse_base_ref "$BASE")"
@@ -124,6 +125,17 @@ if [ "$VERIFY" -eq 1 ]; then
     # the repository carrying the live digest answered `gate: receipts verified`
     # at exit 0, while the write side refused the identical shape.
     ws_contained "$WS" "receipts/${r##*/}" || { echo "gate: FAIL - receipts/${r##*/} does not resolve inside the task workspace $WS (refusing to certify a receipt from outside it)"; exit 1; }
+    # Containment is the wrong question on its own here. A repository can COMMIT
+    # its own receipts: every path then resolves exactly where a receipt belongs,
+    # containment accepts, and on a fresh clone with nothing measured locally
+    # this gate - the tier-B honesty gate - certifies a tree no gate here ever
+    # looked at. Measured on the round-2 build: `gate: receipts verified` at
+    # exit 0 over a clone's committed receipts carrying the empty-diff constant.
+    # Task workspaces are gitignored, so a tracked receipt is never one we wrote.
+    rcp_reason="$(ws_provenance_reason "$WS" "receipts/${r##*/}")" || {
+      echo "gate: FAIL - $rcp_reason"
+      exit 1
+    }
     g="$(jq -r '.gate // empty' "$r")"
     # check-criteria validates scope.md (code-independent) but its receipt hashes
     # the diff at implement-start on a clean tree, so its digest goes code-stale
