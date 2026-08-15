@@ -1700,6 +1700,133 @@ XML
   [[ "$output" != *".harmonia/project.yaml"* ]]
 }
 
+@test "an exported CDPATH does not send the one cd the grammar admits into a sibling tree" {
+  # `cd sub && sh ./cov.sh` is the monorepo shape the grammar admits. POSIX `cd`
+  # searches CDPATH before the current directory for an operand that does not
+  # begin with `/`, `./` or `../`, so a developer with `CDPATH=$HOME/src` in their
+  # .bashrc - which is an ordinary line, not an attack - has the gate change into
+  # a SIBLING repository's `sub/` and run that tree's `cov.sh` under this tree's
+  # recorded consent. It needs nobody hostile, and no rule about the string can
+  # close it: the disagreement is in the shell rather than in the path. G1 is what
+  # makes `cd sub` mean this repository's `sub`, and with the resolver retired it
+  # is the only thing that does.
+  #
+  # trust_key and bin/base-ref-lib.sh:71-72 already clear CDPATH before
+  # their own cd; the one cd the grammar admits is the third site.
+  mkdir -p "$R/sub" "$BATS_TEST_TMPDIR/sibling/sub"
+  printf '#!/bin/sh\ntouch %s/attested-ran\necho /nonexistent/nope.xml\n' "$BATS_TEST_TMPDIR" > "$R/sub/cov.sh"
+  printf '#!/bin/sh\ntouch %s/SIBLING-RAN\necho /nonexistent/nope.xml\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/sibling/sub/cov.sh"
+  chmod +x "$R/sub/cov.sh" "$BATS_TEST_TMPDIR/sibling/sub/cov.sh"
+  printf 'coverage: cd sub && sh ./cov.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm sub
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  # The control first, with no CDPATH: this value runs the script it names.
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$BATS_TEST_TMPDIR/attested-ran" ]
+  [ ! -f "$BATS_TEST_TMPDIR/SIBLING-RAN" ]
+  rm -f "$BATS_TEST_TMPDIR/attested-ran"
+  run env CDPATH="$BATS_TEST_TMPDIR/sibling" bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -f "$BATS_TEST_TMPDIR/SIBLING-RAN" ] || { echo "an exported CDPATH ran a sibling tree's script under this tree's consent - $output"; false; }
+  [ -f "$BATS_TEST_TMPDIR/attested-ran" ] || { echo "the attested script did not run with CDPATH set - $output"; false; }
+}
+
+@test "a PATH entry the repository can write does not decide what the bare word sh names, while the developer's own toolchain stays reachable" {
+  # G2, and it is the one place round 5 ADDS code rather than removing it. The
+  # interpreter arm is the whole reason a bare word is admitted at all, on the
+  # premise that `sh` is the machine's: a repository commit cannot change what
+  # /bin/sh is. `PATH_add node_modules/.bin` in an .envrc is repository content
+  # that makes the premise false, and a repository that ships its own `sh` then
+  # decides what every value in the grammar's largest class runs.
+  #
+  # BOTH HALVES ARE NEEDED, and the second is why a resolve-and-compare filter is
+  # not enough: a RELATIVE entry is resolved against the directory the value runs
+  # in, and the gate's own `cd "$REPO"` is what moves it inside the tree - so an
+  # entry that looked outside when the filter ran is inside by the time the shell
+  # searches it. Reproduced with the plainest value in the set.
+  mkdir -p "$R/node_modules/.bin" "$BATS_TEST_TMPDIR/tools"
+  printf '#!/bin/sh\ntouch %s/MINE\necho /nonexistent/nope.xml\n' "$BATS_TEST_TMPDIR" > "$R/cov.sh"
+  chmod +x "$R/cov.sh"
+  printf 'coverage: sh ./cov.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm cov
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  # The control: with an ordinary PATH the value runs, so every cell below is
+  # about which `sh` ran and not about whether anything ran.
+  rm -f "$BATS_TEST_TMPDIR/MINE"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$BATS_TEST_TMPDIR/MINE" ] || { echo "the attested value did not run with an ordinary PATH - $output"; false; }
+  # An absolute entry inside the repository.
+  printf '#!/bin/sh\ntouch %s/REPO-SH-RAN\nexec /bin/sh "$@"\n' "$BATS_TEST_TMPDIR" > "$R/node_modules/.bin/sh"
+  chmod +x "$R/node_modules/.bin/sh"
+  rm -f "$BATS_TEST_TMPDIR/MINE" "$BATS_TEST_TMPDIR/REPO-SH-RAN"
+  run env PATH="$R/node_modules/.bin:$PATH" bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -f "$BATS_TEST_TMPDIR/REPO-SH-RAN" ] || { echo "an absolute PATH entry inside the repository decided what the bare word sh names - $output"; false; }
+  [ -f "$BATS_TEST_TMPDIR/MINE" ] || { echo "the value did not run with a repository PATH entry present - $output"; false; }
+  # A RELATIVE entry, run from the repository root so it is the same directory
+  # spelled without a leading slash. This is the half that defeats resolving each
+  # entry and comparing it: at filter time the cwd is wherever the gate was
+  # invoked, and `cd "$REPO"` happens afterwards.
+  printf '#!/bin/sh\ntouch %s/RELATIVE-SH-RAN\nexec /bin/sh "$@"\n' "$BATS_TEST_TMPDIR" > "$R/node_modules/.bin/sh"
+  chmod +x "$R/node_modules/.bin/sh"
+  rm -f "$BATS_TEST_TMPDIR/MINE" "$BATS_TEST_TMPDIR/RELATIVE-SH-RAN"
+  # Captured rather than `run`, because the cwd is what this cell varies and `run`
+  # cannot carry a subshell's status back out (`env -C` is GNU-only).
+  local relout
+  relout="$( cd "$R" && PATH="node_modules/.bin:$PATH" bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" 2>&1 )" || true
+  [ ! -f "$BATS_TEST_TMPDIR/RELATIVE-SH-RAN" ] || { echo "a relative PATH entry decided what the bare word sh names, because cd \$REPO moved it inside the tree - $relout"; false; }
+  [ -f "$BATS_TEST_TMPDIR/MINE" ] || { echo "the value did not run with a relative PATH entry present - $relout"; false; }
+  # ...and the fix cannot be "empty the PATH": an absolute entry OUTSIDE the
+  # repository is the developer's own toolchain, and it stays reachable.
+  printf '#!/bin/sh\ntouch %s/OUTSIDE-TOOL-RAN\nexec /bin/sh "$@"\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/tools/sh"
+  chmod +x "$BATS_TEST_TMPDIR/tools/sh"
+  rm -f "$BATS_TEST_TMPDIR/MINE" "$BATS_TEST_TMPDIR/OUTSIDE-TOOL-RAN"
+  run env PATH="$BATS_TEST_TMPDIR/tools:$PATH" bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$BATS_TEST_TMPDIR/OUTSIDE-TOOL-RAN" ] || { echo "an absolute PATH entry outside the repository was dropped, so the developer's own toolchain stopped being reachable - $output"; false; }
+  [ -f "$BATS_TEST_TMPDIR/MINE" ] || { echo "the value did not run with an outside PATH entry present - $output"; false; }
+  # ROUND 6: PATH IDENTITY IS NOT STRING IDENTITY, and a filter written as four
+  # `case` patterns over two spellings is an author who has enumerated two members
+  # of an infinite set. `//repo/bin` names the same directory as `/repo/bin` on
+  # Linux and matches none of the four; `export PATH="/$PWD/bin:$PATH"` in an
+  # .envrc produces exactly that entry and costs one character. A symlinked
+  # parent and a bind mount are the same gap with a different spelling, and the
+  # loop is written over spellings rather than as one cell because what is being
+  # asserted is that the filter compares DIRECTORIES.
+  #
+  # ONE MEASUREMENT FOR WHOEVER WRITES THE FILTER, because the obvious fix does
+  # not close the obvious spelling: `cd "$p" && pwd -P` does NOT normalise a
+  # leading double slash. POSIX reserves a path beginning with exactly two
+  # slashes, and bash's own `pwd -P` answers `//tmp/x` for `cd //tmp/x` - so a
+  # resolve-and-compare built on `cd`+`pwd -P` keeps the entry that B3 was
+  # reproduced with, while three or more leading slashes collapse and every other
+  # spelling in this loop resolves correctly. `readlink -f` and `realpath` both
+  # answer `/tmp/x`. Measured here, on this machine, against a build carrying the
+  # `cd`+`pwd -P` form: only the `//` row fails.
+  #
+  # Every spelling is measured before the cell decides, so a build closes them in
+  # one round rather than in five.
+  local spelling repo_link bad=''
+  repo_link="$BATS_TEST_TMPDIR/via-link"
+  ln -sfn "$R" "$repo_link"
+  for spelling in \
+    "/$R/node_modules/.bin" \
+    "$R/node_modules/.bin/" \
+    "$R/./node_modules/.bin" \
+    "$R/node_modules/../node_modules/.bin" \
+    "$repo_link/node_modules/.bin"
+  do
+    printf '#!/bin/sh\ntouch %s/SPELLED-SH-RAN\nexec /bin/sh "$@"\n' "$BATS_TEST_TMPDIR" > "$R/node_modules/.bin/sh"
+    chmod +x "$R/node_modules/.bin/sh"
+    rm -f "$BATS_TEST_TMPDIR/MINE" "$BATS_TEST_TMPDIR/SPELLED-SH-RAN"
+    run env PATH="$spelling:$PATH" bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+    [ ! -f "$BATS_TEST_TMPDIR/SPELLED-SH-RAN" ] || bad="$bad
+  [$spelling] decided what the bare word sh names"
+    [ -f "$BATS_TEST_TMPDIR/MINE" ] || bad="$bad
+  [$spelling] the value did not run at all, so that row proves nothing - $output"
+  done
+  [ -z "$bad" ] || { echo "a second spelling of a directory inside the repository reached the interpreter:$bad"; false; }
+}
+
 @test "a second spelling of /dev/stdin is refused at both doors, and the bytes on the other side of the pipe never run" {
   # ROUND 7's BLOCKER, END TO END, because a recorder verdict is not what this is
   # about: the reproduction that matters is a payload executing at the gate. The
@@ -1822,4 +1949,126 @@ XML
     > "$rec"
   run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
   [[ "$output" != *".harmonia/project.yaml"* ]] || { echo "the re-check refused a legacy record for a value the grammar still admits, which is the migration this round does not reopen - $output"; false; }
+}
+
+@test "the seam clears the environment channels that put code inside an interpreter, and leaves the toolchain variable it declares inherited" {
+  # The card says these are the machine's interpreters, and three of the six take
+  # code from the environment: `BASH_ENV` runs a file before bash reads the script
+  # it was given, `NODE_OPTIONS=--require` does the same for node, and `PYTHONPATH`
+  # plus a `sitecustomize.py` does it for python3 - all three measured firing. The
+  # deletion of the `/`-carrying class makes this worse rather than better,
+  # because after it the interpreter arm is the only arm that executes anything at
+  # all, and an `.envrc` exports arbitrary names rather than only PATH_add.
+  #
+  # ASKED BY HAVING THE VALUE ITSELF REPORT ITS ENVIRONMENT, which is the only way
+  # to assert a clearing rather than assert that a payload happened not to fire:
+  # the gate is bash and reads BASH_ENV at its own startup, which is the declared
+  # class this sits in (anyone who can set the gate's environment can run the
+  # command directly). What the seam owes is that the interpreter it starts for
+  # the repository's command does not carry those channels.
+  #
+  # The list is a denylist and cannot be completed, so what it is NOT is asserted
+  # in the same cell: LD_LIBRARY_PATH stays inherited, because it is a toolchain
+  # input for nix and conda and not a code-injection path for a card interpreter,
+  # and a build that clears everything it can name would pass a one-sided cell.
+  cat > "$R/.harmonia/envcov.sh" <<'SH'
+#!/bin/sh
+{
+  echo "BASH_ENV=[${BASH_ENV-}]"
+  echo "ENV=[${ENV-}]"
+  echo "LD_PRELOAD=[${LD_PRELOAD-}]"
+  echo "PYTHONSTARTUP=[${PYTHONSTARTUP-}]"
+  echo "NODE_OPTIONS=[${NODE_OPTIONS-}]"
+  echo "PYTHONPATH=[${PYTHONPATH-}]"
+  echo "LD_LIBRARY_PATH=[${LD_LIBRARY_PATH-}]"
+} > "$1"
+echo /nonexistent/nope.xml
+SH
+  chmod +x "$R/.harmonia/envcov.sh"
+  local seen="$BATS_TEST_TMPDIR/seam-env"
+  printf 'coverage: sh .harmonia/envcov.sh %s && echo /nonexistent/nope.xml\n' "$seen" > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  run env \
+    BASH_ENV="$BATS_TEST_TMPDIR/hook.sh" \
+    ENV="$BATS_TEST_TMPDIR/hook.sh" \
+    LD_PRELOAD="$BATS_TEST_TMPDIR/evil.so" \
+    PYTHONSTARTUP="$BATS_TEST_TMPDIR/hook.py" \
+    NODE_OPTIONS="--require $BATS_TEST_TMPDIR/evil.js" \
+    PYTHONPATH="$BATS_TEST_TMPDIR/sitedir" \
+    LD_LIBRARY_PATH="$BATS_TEST_TMPDIR/libs" \
+    bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$seen" ] || { echo "the attested value did not run, so this cell measured nothing - $output"; false; }
+  local name
+  for name in BASH_ENV ENV LD_PRELOAD PYTHONSTARTUP NODE_OPTIONS PYTHONPATH; do
+    grep -qxF "$name=[]" "$seen" || {
+      echo "$name reached the interpreter the seam starts for the repository's command, and it is a channel that puts a file of somebody else's choosing inside it: $(grep "^$name=" "$seen")"; false; }
+  done
+  grep -qxF "LD_LIBRARY_PATH=[$BATS_TEST_TMPDIR/libs]" "$seen" || {
+    echo "LD_LIBRARY_PATH is declared inherited - it is a toolchain input for nix and conda - and the seam cleared it, which breaks a repository whose command works everywhere else: $(grep '^LD_LIBRARY_PATH=' "$seen")"; false; }
+  # SHELLOPTS AND BASHOPTS ARE READONLY IN BASH AND CANNOT JOIN THAT LIST, and
+  # this is the leg that keeps the two fixes apart: a shell that folds case is a
+  # real defect and it is fixed in the RECORDER with `shopt -u`, not by adding two
+  # more names here. Merging them stops the gate running any coverage command at
+  # all - the unset fails, and under a shell that stops on error it takes the
+  # subshell the value runs in down with it. Asserted as "the value still runs",
+  # because that is the failure a developer would meet.
+  rm -f "$seen"
+  run env BASHOPTS=nocasematch SHELLOPTS=braceexpand \
+    bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$seen" ] || { echo "with BASHOPTS and SHELLOPTS set in the environment the attested value did not run at all, which is what happens when two readonly names are added to the seam's unset list - $output"; false; }
+}
+
+@test "a repository that vendors its toolchain does not become the interpreter, because the filtered PATH falls back to an absolute default rather than to here" {
+  # THIS IS THE CELL THE ROUND TURNS ON, and it is the one place where deleting
+  # the `/`-carrying first-word class is NOT what closes the hole. `sh ./cov.sh`
+  # is the plainest value the grammar admits and the one spelling round 6
+  # blesses; the filter above drops every PATH entry that is relative or inside
+  # the tree; and a repository that vendors its toolchain - the direnv case the
+  # gate's own comment names - has NOTHING LEFT. An empty PATH does not mean "no
+  # directories": bash searches the current directory, which after the `cd` is the
+  # repository root, so the repository's own `./sh` runs as the interpreter under
+  # recorded consent, with the head class already gone.
+  #
+  # THE SPELLING OF THE FLOOR IS WHAT DECIDES IT. An assignment of an absolute
+  # default when the filter produced nothing closes it; a JOIN onto what the
+  # filter produced - `PATH="${COV_PATH}:/usr/bin:/bin"` - reopens it byte for
+  # byte, because a leading, trailing or doubled `:` is an empty field and an
+  # empty field means here. Both builds pass every other cell in this file, and
+  # this one separates them. Measured against a joining build: the repository's
+  # own `./sh` ran.
+  #
+  # THE SENTINELS ARE REDIRECTS, NEVER `touch`. Inside that subshell the external
+  # tools are gone by construction, so a cell that writes its sentinel with a
+  # command goes green for a reason that has nothing to do with the guard.
+  mkdir -p "$R/vendor/bin"
+  printf '#!/bin/sh\n: > %s/MINE\necho /nonexistent/nope.xml\n' "$BATS_TEST_TMPDIR" > "$R/cov.sh"
+  chmod +x "$R/cov.sh"
+  # The repository's own interpreter, at the root, which is where an empty PATH
+  # entry looks. It hands the arguments on to the real shell, so a build that
+  # runs it looks exactly like a build that did not - the sentinel is the only
+  # difference, which is the whole shape of this hazard.
+  printf '#!/bin/sh\n: > %s/REPO-SH-RAN\nexec /bin/sh "$@"\n' "$BATS_TEST_TMPDIR" > "$R/sh"
+  chmod +x "$R/sh"
+  printf 'coverage: sh ./cov.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm vendored
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  # The control, with an ordinary PATH: the value runs and the machine's sh is
+  # what ran it.
+  rm -f "$BATS_TEST_TMPDIR/MINE" "$BATS_TEST_TMPDIR/REPO-SH-RAN"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$BATS_TEST_TMPDIR/MINE" ] || { echo "the attested value did not run with an ordinary PATH - $output"; false; }
+  [ ! -f "$BATS_TEST_TMPDIR/REPO-SH-RAN" ]
+  # The vendored toolchain: every tool the gate itself needs, reachable at an
+  # absolute path INSIDE the repository. This is a repository that works - it is
+  # nix, direnv and `PATH_add` - and the filter is right to drop the entry. What
+  # it must not do is leave the search list empty.
+  ln -sfn /usr/bin/* "$R/vendor/bin/" 2>/dev/null || true
+  ln -sfn /bin/* "$R/vendor/bin/" 2>/dev/null || true
+  [ -x "$R/vendor/bin/git" ] || skip "this machine has no /usr/bin/git or /bin/git to vendor"
+  rm -f "$BATS_TEST_TMPDIR/MINE" "$BATS_TEST_TMPDIR/REPO-SH-RAN"
+  run env PATH="$R/vendor/bin" bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -f "$BATS_TEST_TMPDIR/REPO-SH-RAN" ] || { echo "with every PATH entry filtered away, the bare word sh resolved from the current directory and the repository's own ./sh ran as the interpreter - $output"; false; }
+  [ -f "$BATS_TEST_TMPDIR/MINE" ] || { echo "with every PATH entry filtered away the attested value did not run at all, so the floor is missing rather than wrong - $output"; false; }
 }

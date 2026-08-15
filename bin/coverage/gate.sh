@@ -253,9 +253,84 @@ if [ -n "$CODE_FILES" ]; then
       # SKILL, not the gate's. eval honors the shell grammar (pipes/redirs/&&) the
       # wrapper needs, and runs the value AFTER config-lib strips one quote layer, so
       # a quoted coverage: value is not a literal - it executes identically to bare
-      # and must be scrutinized as executable. Trusted repo config run from $REPO -
-      # the same footing as the adapters running the repo's own suite.
-      REPORT="$( cd "$REPO" && eval "$COV_CMD" )" \
+      # and must be scrutinized as executable. What is no longer true is the
+      # sentence this replaces - that the value sits on the same footing as the
+      # adapters running the repo's own suite. That equivalence survives for the
+      # adapters' half only: they still run a clone's own tests (bash.sh:17), which
+      # is a declared non-goal rather than something the record above closes.
+      # CDPATH cleared with the same one token bin/trust.sh:60 and
+      # bin/base-ref-lib.sh:71 use before their own `cd`: POSIX `cd` searches it
+      # before the current directory for an operand that does not begin with `/`,
+      # `./` or `../`, so an ordinary `CDPATH=$HOME/src` in a developer's .bashrc
+      # sends the one `cd` the grammar admits into a SIBLING tree and runs that
+      # tree's script under this tree's recorded consent, with nobody attacking
+      # anything and every reference here resolved correctly.
+      #
+      # And PATH, for the same kind of reason one rule over. The grammar admits a
+      # bare `sh`, `bash` or `python3` on the premise that those name the
+      # MACHINE's interpreters - a repository commit cannot change what /bin/sh
+      # is - and `PATH_add node_modules/.bin` in an .envrc is repository content
+      # that makes the premise false. So this subshell keeps only the entries
+      # that are absolute AND land outside the tree being measured. Both halves
+      # are needed: a relative entry is searched from the directory the value
+      # runs in, and the `cd "$REPO"` on the next line is what moves it inside,
+      # so resolving each entry where the gate happens to stand and comparing
+      # would keep exactly the entry that ends up inside. An actor who can write
+      # an absolute PATH entry outside the repository, or /bin/sh itself, has
+      # already won and is outside the model (SECURITY.md).
+      #
+      # WHAT IS COMPARED IS DIRECTORIES AND NOT SPELLINGS. `//repo/bin` names the
+      # same directory as `/repo/bin` on Linux and matched none of the string
+      # patterns this used to be written as - and `export PATH="/$PWD/bin:$PATH"`
+      # in an .envrc writes exactly that, at a cost of one character. A symlinked
+      # parent and a bind mount are the same gap with a different spelling, so
+      # each surviving entry is resolved once, here, before the `cd "$REPO"`
+      # below. Measured at 3 ms per gate run against a gate that measures itself
+      # in minutes.
+      COV_ROOT="$( CDPATH=''; cd "$REPO" && pwd -P )"
+      COV_PATH=""
+      COV_SEEN="${PATH-}"                                             # bash always supplies a PATH; the default is what stops `set -u` deciding this
+      while IFS= read -r p; do
+        case "$p" in /*) ;; *) continue ;; esac                       # relative, including the empty entry that means "here"
+        # An entry nothing can enter is dropped rather than kept: a directory the
+        # shell cannot search cannot supply an interpreter, and one that appears
+        # after this filter ran is the hazard rather than the toolchain.
+        p_res="$( CDPATH=''; cd "$p" 2>/dev/null && pwd -P )"
+        [ -n "$p_res" ] || continue
+        case "$p_res" in //[!/]*) p_res="/${p_res#//}" ;; esac        # POSIX reserves exactly two leading slashes and `pwd -P` keeps them, so the resolver alone does not close the spelling this was reproduced with
+        case "$p_res" in "$COV_ROOT"|"$COV_ROOT"/*) continue ;; esac
+        COV_PATH="${COV_PATH:+$COV_PATH:}$p"
+      done <<< "${COV_SEEN//:/$'\n'}"
+      # ...and a floor under the result, because emptying PATH does not mean "no
+      # directories": bash then searches the current one, which after the `cd` is
+      # the repository. A repository that vendors its toolchain - nix, direnv,
+      # `PATH_add` - has every entry relative or in-tree and leaves nothing here,
+      # and the plainest value the grammar admits then runs the repository's own
+      # `./sh`. It is an ASSIGNMENT of an absolute default, never a join onto
+      # what the filter produced: a leading, trailing or doubled `:` is an empty
+      # field and an empty field means here, so `${COV_PATH}:/usr/bin:/bin`
+      # reopens this byte for byte.
+      #
+      # The preload channels go in the same subshell. Three of the six card
+      # interpreters take code from the environment - BASH_ENV into bash,
+      # NODE_OPTIONS `--require` into node, PYTHONPATH plus a sitecustomize.py
+      # into python3, all three measured firing - and an .envrc exports arbitrary
+      # names, not only PATH_add. It is a denylist and cannot be completed;
+      # SHELLOPTS and BASHOPTS are readonly in bash and are declared inherited
+      # rather than added here, and LD_LIBRARY_PATH stays because it is a
+      # toolchain input for nix and conda and not a way into a card interpreter.
+      # A repository that needs NODE_OPTIONS or PYTHONPATH sets them inside its
+      # own wrapper script, which is committed and readable.
+      #
+      # THE SUBSHELL IS ONE PHYSICAL LINE, because kcov credits a multi-line
+      # command to its LAST line only. Spelled over three lines, the PATH floor
+      # and the unset list were read as never executed while the `cd`+`eval`
+      # they exist to guard carried the hits for all three - and the two cells
+      # that drive them, the vendored-toolchain one and the channel-clearing
+      # one, had no line to land on. Inside `$( )` a newline and a `;` are the
+      # same command separator, so this is the same subshell running the same
+      # commands under the same names in the same order.
+      REPORT="$( CDPATH=''; PATH="${COV_PATH:-/usr/bin:/bin}"; unset BASH_ENV ENV LD_PRELOAD PYTHONSTARTUP NODE_OPTIONS PYTHONPATH; cd "$REPO" && eval "$COV_CMD" )" \
         || { echo "gate: cannot measure - project coverage command failed"; exit 4; }
       case "$REPORT" in /*) : ;; *) REPORT="$REPO/$REPORT" ;; esac  # resolve repo-relative echo
       [ -f "$REPORT" ] \
