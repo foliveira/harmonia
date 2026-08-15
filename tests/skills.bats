@@ -375,6 +375,158 @@ setup() {
   done
 }
 
+@test "the shipped files say what a command they will not record should become, and stop claiming more than the record binds" {
+  # Round 2 failed on documentation as much as on code: four shipped files told a
+  # developer the files their command runs were bound, and for `/bin/sh cov.sh`,
+  # `env ./cov.sh`, `. ./cov.sh`, `VAR=1 ./cov.sh`, `sh <cov.sh` and `sh -c '…'`
+  # they were not - each measured running a rewritten payload under recorded
+  # consent. Round 3 makes the printed list the whole of the promise, so these
+  # files have two new things to say - a value outside the recordable shapes is
+  # refused when consent is recorded, and here is what to do with one - and three
+  # sentences to stop saying, because each restates the rule that under-bound those
+  # six spellings. Same discipline as the test above: the criterion's own patterns,
+  # subjects rather than truth, and the absence checks are the half a comment
+  # cannot satisfy.
+  local f
+  for f in "$REPO_ROOT/SECURITY.md" "$REPO_ROOT/skills/trust/SKILL.md"; do
+    grep -qEi 'cannot be recorded|will not record|refuses to record|refuses the value' "$f"
+    grep -qEi 'into a script|put it in a script|attest the script|inside a script' "$f"
+    # ROUND 5. The sentence a developer has to be able to find, in both files: the
+    # record covers the string, and the code behind every name in it is trusted
+    # for whatever it holds when it runs. Its absence half is below.
+    grep -qEi 'whatever it contains|contents it has when it runs|trusting that script' "$f"
+    grep -qEi 'arrive|later commit|after you' "$f"
+    # ...and the sharpest single thing the retirement gives up, which the round
+    # requires in both files in those words: consent is keyed by the path, so a
+    # tree swapped in at that path inherits it.
+    grep -qEi 'clone|cloned' "$f"
+    if grep -qF 'binds-sha256' "$f"; then
+      echo "$f still documents the binding digest, which the record no longer carries"; false
+    fi
+    if grep -qF 'the files it names' "$f"; then
+      echo "$f still says consent extends to the files the command names"; false
+    fi
+  done
+  # Written as `if grep; then … false; fi` rather than `! grep`, because bash
+  # suppresses errexit for a command whose status is inverted with `!` - so an
+  # absence check in that form asserts nothing at all unless it happens to be the
+  # LAST line of the test. Two of these three were in that position when they
+  # shipped, and both would have gone green with the sentence they name still in
+  # the file.
+  if grep -qF 'Those two interpreter words and no others' "$REPO_ROOT/skills/trust/SKILL.md"; then
+    echo "skills/trust/SKILL.md still states round 2's two-interpreter rule"; false
+  fi
+  if grep -qF 'the script operand of `sh` or `bash`' "$REPO_ROOT/SECURITY.md"; then
+    echo "SECURITY.md still states round 2's reference rule"; false
+  fi
+  # Whitespace-normalised because this one wraps across two lines in the file, and
+  # a line-oriented grep for it can never fire - which is how it survived a round
+  # that checked for it.
+  if tr '\n' ' ' < "$REPO_ROOT/skills/onboard/SKILL.md" | tr -s ' ' | grep -qF 'the contents of the files that command runs'; then
+    echo "skills/onboard/SKILL.md still claims the record binds the contents of the files the command runs"; false
+  fi
+}
+
+@test "the shipped files stop advising the shape the recorder now refuses, and say which interpreter to put in front instead" {
+  # ROUND 6, and it is a retirement of ADVICE rather than of a claim. "Name the
+  # program by its path" was the remedy rounds 4 and 5 printed - `npx jest
+  # --coverage` becomes `./node_modules/.bin/jest --coverage`, `mvn` becomes
+  # `./mvnw`, `gradle` becomes `./gradlew` - and a first word carrying a `/` is
+  # refused now, so every file still carrying that sentence routes a developer
+  # into a refusal. The behaviour half is pinned in tests/trust.bats, where the
+  # recorder's own refusal message is asserted not to offer it; this is the
+  # documentation half, and it is here because a criterion lives in a workspace
+  # and this file ships.
+  #
+  # Absence checks in the `if grep; then … false; fi` shape, never `! grep`: bash
+  # suppresses errexit for an inverted status, so the other spelling asserts
+  # nothing unless it is the last line of the body.
+  local f claim
+  for f in SECURITY.md skills/trust/SKILL.md skills/onboard/SKILL.md skills/onboard/CERTIFY.md; do
+    [ -f "$REPO_ROOT/$f" ] || { echo "$f is missing"; false; }
+    for claim in 'named by a path' 'Naming the program by a path' 'basename is on the card' 'later words are its data'; do
+      if grep -qF "$claim" "$REPO_ROOT/$f"; then
+        echo "$f still offers '$claim', which the recorder refuses - so the file sends a developer to a value that cannot be recorded"; false
+      fi
+    done
+  done
+  # The presence half, in the three files a developer or a proposing agent is
+  # actually sent to. What it proves is that the SUBJECT is addressed and not that
+  # what is said about it is true - the same limit every grep over prose has, and
+  # the review reads the sentences by running them. CERTIFY.md is a certification
+  # checklist rather than a cookbook, so it carries the absence half only.
+  for f in SECURITY.md skills/trust/SKILL.md skills/onboard/SKILL.md; do
+    grep -qEi 'first word.*(carry|carries|carrying|with) a `?/|/.*in (the|its) first word.*refus|refus.*first word.*/' "$REPO_ROOT/$f" \
+      || { echo "$f does not say that a first word carrying a / is refused, which is the sharpest cost this round adds"; false; }
+    # ...and the remedy that replaces it: a card interpreter in front of the file.
+    grep -qE '(sh|bash|node|python3) \./' "$REPO_ROOT/$f" \
+      || { echo "$f shows no interpreter-in-front respelling, so it states a refusal with no way out of it"; false; }
+    # WHICH interpreter is not a free choice - an npm shim is JavaScript, a pnpm
+    # shim is `#!/bin/sh`, a native binary is neither - and the recorder opens no
+    # file, so it cannot tell a developer which. The documents have to.
+    grep -qEi 'first line|shebang|#!' "$REPO_ROOT/$f" \
+      || { echo "$f tells a developer to put an interpreter in front without telling them how to choose it, and the three shapes under node_modules/.bin need three different answers"; false; }
+  done
+}
+
+@test "SECURITY.md does not deny that the gate asks the grammar again above the eval, which is what it does and what the migration paragraph rests on" {
+  # ROUND 7. `SECURITY.md` says both of these, sixteen lines apart: that the gate
+  # "does not re-apply the recording rules" and that "the only string it ever
+  # parses is one a record already matched"; and, in the migration paragraph, that
+  # "the gate asks the grammar again above the `eval` rather than trusting the
+  # record to have been written by this recorder". The second is what the code
+  # does - a record whose repo: and digest both match is still refused when the
+  # value has since been narrowed away - and it is the sentence the whole
+  # migration story is built on. The first denies it, and it is a line this diff
+  # added.
+  #
+  # A reader who stops at the earlier sentence takes away the opposite of what the
+  # gate will do to them, and it is the sentence that reads like a guarantee: it
+  # says an out-of-grammar string can never reach the parser, which is the claim
+  # tests/trust.bats and tests/coverage.bats both red against.
+  #
+  # THE FIRST VERSION OF THIS CELL WENT GREEN ON A DOCUMENT CARRYING THE EXACT
+  # SENTENCE IT WAS WRITTEN FOR, and both halves were wrong in different ways.
+  # It is recorded here rather than quietly replaced, because the shape recurs.
+  #
+  #   The absence half was two `grep -qF` literals, so one word defeated each:
+  #   `The gate never re-applies the recording rules` and `…one a record HAS
+  #   already matched` both walked through. The second is not hypothetical - the
+  #   true sentence below now contains `not one a record has already matched`, so
+  #   the file itself handed the next editor the evading form.
+  #
+  #   The presence half was worse than weak, it was inverted: its middle
+  #   alternative matched `re-apply the recording rules`, which is a substring of
+  #   the denial, so "the truth is still stated" was satisfied BY THE FALSEHOOD.
+  #   A document carrying only the round-6 claim passed both halves.
+  #
+  # The absence half is now anchored on the two things every spelling of the
+  # denial has to contain: a negation in front of the verb, or the clause that
+  # only the denial uses. The presence half asks for the true sentence and
+  # nothing that a denial can also satisfy.
+  local f="$REPO_ROOT/SECURITY.md"
+  if grep -qEi '(does not|never|no longer|doesn.t) re-?appl(y|ies)|only string it ever parses' "$f"; then
+    echo "SECURITY.md denies that the gate re-applies the recording rules, and the gate calls the grammar above the digest compare - so the file denies the behaviour its own migration paragraph rests on:"
+    grep -nEi '(does not|never|no longer|doesn.t) re-?appl(y|ies)|only string it ever parses' "$f"
+    false
+  fi
+  # The presence half, so the denial cannot be answered by deleting the subject:
+  # the file has to say that the grammar is asked again at the gate. Satisfied
+  # today by the sentence above the migration paragraph, and no longer satisfiable
+  # by the denial - which is what the middle alternative used to do.
+  grep -qEi 'asks the grammar again|the grammar is asked again' "$f" \
+    || { echo "SECURITY.md no longer states that the gate asks the grammar again above the eval, which is the sentence a developer holding a record for a narrowed-away value needs"; false; }
+  # WHAT THIS STILL CANNOT DO, stated rather than left for the next review to
+  # find: both halves are string matches over prose and the absence half
+  # enumerates four negations. A fresh paraphrase that avoids them - "the
+  # recording rules are applied once, at record time" - passes it, and no regex
+  # over English closes that. What it does close is the class that produced the
+  # defect: a respelling of the sentence that was there. Whether the replacement
+  # is TRUE stays a reading job, and the review does it by running the sentence
+  # against the code; the behaviour itself is pinned in tests/coverage.bats and
+  # tests/trust.bats, which is where a build that stopped re-applying would red.
+}
+
 @test "verify-acceptance refuses an unresolvable base and names it" {
   id="$(bash "$WSH" mint --repo "$R" --slug baseless)"
   WS="$R/.harmonia/tasks/$id"
@@ -386,4 +538,75 @@ setup() {
   [[ "$output" == *"cannot verify acceptance"* ]]
   [[ "$output" == *"does not resolve"* ]]
   [[ "$output" == *"'none'"* ]]   # the message names what could not resolve
+}
+
+@test "the grammar the recorder enforces is stated once and carried identically by the code and by every document that repeats it" {
+  # The closed interpreter list, the inert words and the two caps are written out
+  # in five places, and until this round nothing held them equal: round 2's blocker
+  # was one wrong rule restated three times, and round 3 shipped a list whose byte
+  # cap is missing from skills/onboard/SKILL.md's copy of it. The obvious check -
+  # grep each file for the names - was written by this round's own attack and
+  # passed three ways, including by a sentence stating the NEGATION of the list
+  # ("Do NOT propose any of `sh bash dash python python3 node` - the recorder now
+  # takes only `zsh`") and by a stale list left standing beside its correction. A
+  # grep over prose cannot tell a list from a list's negation.
+  #
+  # So the grammar is a delimited card, compared by the digest of the bytes between
+  # its sentinels rather than by a regex over sentences. A file may say whatever it
+  # likes around the card; it still has to carry one, and a card cannot mean
+  # something else. What this does NOT check is that the sentences around it are
+  # true, or that the card itself is right - the first is a reading job for the
+  # review, and the second is held against the shipped recorder by
+  # tests/trust.bats, because five identical copies of a wrong card would satisfy
+  # everything here.
+  local f card h first='' firstfile='' bad=0
+  for f in bin/trust.sh SECURITY.md skills/trust/SKILL.md skills/onboard/SKILL.md skills/onboard/CERTIFY.md; do
+    [ -f "$REPO_ROOT/$f" ] || { echo "$f is missing"; bad=1; continue; }
+    card="$(awk '/harmonia:grammar-card/{ if (n++) exit; next } n==1' "$REPO_ROOT/$f" | sed 's/^[[:space:]#*-]*//; s/[[:space:]`]*$//' | grep -v '^$' || true)"
+    [ -n "$card" ] || { echo "$f carries no harmonia:grammar-card block, so nothing keeps its copy of the grammar aligned with the code"; bad=1; continue; }
+    h="$(printf '%s\n' "$card" | sha256sum | awk '{print $1}')"
+    if [ -z "$first" ]; then first="$h"; firstfile="$f"; printf '%s\n' "$card" > "$BATS_TEST_TMPDIR/card"; fi
+    [ "$h" = "$first" ] || { echo "$f's grammar card differs from $firstfile's:"; diff "$BATS_TEST_TMPDIR/card" <(printf '%s\n' "$card") | head -8; bad=1; }
+  done
+  [ "$bad" -eq 0 ]
+}
+
+@test "the shipped files stop saying that an out-of-tree reference is unbound and unlisted, and stop explaining a pipeline by pipefail" {
+  # Two sentences this round makes false, both of them load-bearing for a
+  # developer deciding what they have agreed to.
+  #
+  # "listed but not bound" describes a list nobody sees: the recorder drops every
+  # out-of-tree reference before printing while keeping it inside the digest, so a
+  # developer told they will see `sh /opt/evil/x.sh` in the list they read does not
+  # see it. Round 4 prints it AND binds where it resolves, so both halves of the
+  # sentence change - the location is bound, the contents are not.
+  #
+  # "it records, but the gate sets no pipefail" is a caveat about a value that does
+  # not record: `tail` is a bare word and the grammar refuses it, so the advice
+  # explains a failure mode the reader can never reach and hides the real one.
+  # The spelling that WOULD record it, `| /usr/bin/tail -1`, is this round's
+  # blocker wearing a helpful voice, and it is refused too.
+  #
+  # An absence check is the half a comment cannot satisfy, and it is all a grep
+  # can honestly do here: whether what replaces these sentences is true is a
+  # reading job, done against the code. Each one is written so that it actually
+  # fails - `! grep` in the middle of a bats body is not an assertion, because
+  # bash suppresses errexit for an inverted status.
+  local f
+  for f in SECURITY.md skills/trust/SKILL.md; do
+    if grep -qF 'listed but not bound' "$REPO_ROOT/$f"; then
+      echo "$f still says an out-of-tree reference is listed but not bound, while the recorder lists none of them and the record binds where they resolve"; false
+    fi
+  done
+  for f in skills/trust/SKILL.md skills/onboard/SKILL.md; do
+    if grep -qF 'the gate sets no' "$REPO_ROOT/$f"; then
+      echo "$f still explains a pipeline through the gate's missing pipefail, which is a caveat about a value the grammar refuses outright"; false
+    fi
+  done
+  # ...and the truncation absolute, which is unqualified where the code is not: a
+  # truncation that eats only the unread trailing line leaves the record
+  # semantically complete and still attests. bin/trust.sh's own comment says so.
+  if grep -qF 'a truncated or unreadable one' "$REPO_ROOT/SECURITY.md"; then
+    echo "SECURITY.md still states the truncation refusal without the qualification the code carries"; false
+  fi
 }
