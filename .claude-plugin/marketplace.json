@@ -9,7 +9,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/foliveira/harmonia.git",
-        "sha": "e25f860c249d77abcccb80d530e243bc6f7ee56e"
+        "sha": "c3c4a8643e03cf64d0f99ad54e9a8a55fea48473"
       },
       "description": "Personal SDLC: an agent roster bound by the 4 Karpathy rules, thin lifecycle commands, deterministic enforcement, and compounding memory."
     }
