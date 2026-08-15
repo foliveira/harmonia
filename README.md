@@ -1,3 +1,5 @@
+<img src="assets/harmonia-mark.svg" alt="" width="96" height="52">
+
 # Harmonia
 
 A personal SDLC for Claude Code and OpenCode: thin lifecycle commands orchestrate a twelve-agent roster bound by the 4 Karpathy rules, hooks deterministically enforce everything a machine can check, and captured knowledge compounds across sessions and projects.
