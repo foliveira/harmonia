@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The suite exercises the coverage gate for real: it hides kcov to assert
+      # the cannot-measure path, which only means anything when kcov is present
+      # on the happy path. diff-cover is the gate's core.
+      - name: Install the engine toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends kcov yamllint jq
+          # pipx, not pip: the runner image is PEP 668 managed, so a plain
+          # `pip install --user` fails with externally-managed-environment.
+          pipx install diff-cover
+          pipx install check-jsonschema
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install bats
+        run: npm install -g bats
+
+      - name: Record the toolchain
+        run: |
+          for t in bats jq yamllint check-jsonschema kcov diff-cover; do
+            printf '%-18s %s\n' "$t" "$(command -v "$t" || echo MISSING)"
+          done
+
+      - name: Validate lifecycle YAML, schema and lens resolution
+        run: bash bin/validate-core.sh
+
+      - name: Run the suite
+        run: bats tests/
