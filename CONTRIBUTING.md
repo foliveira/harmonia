@@ -51,10 +51,11 @@ Installs are pinned to a commit, so a release is four steps and the order matter
 git commit -am "Release 2026.09.01"
 ```
 
-**2. Tag it**, with the same string as the version:
+**2. Tag it**, with the same string as the version. Use `-s`, not `-a` — an annotated tag is unsigned and shows as unverified even when every commit under it is signed:
 
 ```bash
-git tag -a 2026.09.01 -m "Release 2026.09.01"
+git tag -s 2026.09.01 -m "Release 2026.09.01"
+git tag -v 2026.09.01          # expect: Good "git" signature
 ```
 
 **3. Point the marketplace at it.** Take the sha from step 1, set it as `source.sha` in `.claude-plugin/marketplace.json`, and commit that on its own:
