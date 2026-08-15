@@ -137,9 +137,36 @@ Pointing Harmonia at a repository runs some of that repository's own configurati
 
 ## The roster
 
-ideator · scoper · planner · implementer · test engineer · reviewer (review lead) · simplifier · knowledge curator · committer · documentation producer · documentation reviewer · rubber duck
+Twelve agents. Each has a charter in `core/charters/` — the portable truth — and a thin Claude Code wrapper in `agents/`. A stage dispatches them, and each consumes named artifacts and produces named ones, so a handoff is a file on disk rather than a conversation.
 
-Charters live in `core/charters/` (the portable truth); `agents/` are thin Claude Code wrappers. Review lenses (adversarial, security, performance, regression) are dispatchable prompt assets in `core/lenses/` — the security lens auto-fires on auth, secrets, input parsing, and network-facing diffs; the regression lens auto-fires on marker, base-ref, receipt, and shell-quoting diffs, checking the diff against both learning tiers read directly. A fifth file in that directory, `core/lenses/blindspot.md`, is not a review lens: the scoper dispatches it once per task at first scope mint, to surface unknowns before the boundary is drawn.
+| Agent | Runs at | What it does |
+|---|---|---|
+| ideator | ideate | Widens the option space before Harmonia commits to one direction |
+| rubber duck | ideate, discuss | A thinking partner: asks the questions that let you find the answer |
+| scoper | discuss, plan | Pins the scope — goal, boundaries, non-goals, machine-checkable criteria |
+| planner | plan | Designs how to build, strictly inside the scope declaration's boundary |
+| test engineer | implement, review | Writes tests first: failing tests for behavior, covering tests at gaps |
+| implementer | implement, quick | Makes failing tests pass, and never edits a test |
+| reviewer | review, quick | Review lead: chairs the panel, dispatches lenses, audits gates and receipts, writes one verdict |
+| simplifier | review | Challenges every abstraction and line that does not earn its keep |
+| doc reviewer | review | Checks documentation against the code and the diff |
+| knowledge curator | capture | Classifies and files learnings into the right memory tier |
+| committer | capture | Organizes the work into single-concern commits that communicate intent |
+| doc producer | on request | Writes documentation for shipped behavior. No stage dispatches it — invoke it when you want docs |
+
+The review panel is the test engineer, simplifier and doc reviewer, convened under the review lead. The lead arbitrates everything into one verdict; seats do not vote.
+
+### Lenses
+
+Five files in `core/lenses/`. Each declares its own triggers in frontmatter, so dispatch follows the diff rather than a list the reviewer hardcodes.
+
+| Lens | Fires | On |
+|---|---|---|
+| security | automatically | auth, secrets, input parsing, network-facing |
+| regression | automatically | markers, base-ref handling, receipts, shell quoting — checked against both learning tiers |
+| adversarial | the lead's call | new abstractions, architectural changes, novel patterns |
+| performance | the lead's call | hot paths, algorithmic complexity, large data, tight loops |
+| blindspot | not a review lens | the scoper dispatches it once per task at first scope mint, to surface unknowns before the boundary is drawn |
 
 ## Developing the engine
 
