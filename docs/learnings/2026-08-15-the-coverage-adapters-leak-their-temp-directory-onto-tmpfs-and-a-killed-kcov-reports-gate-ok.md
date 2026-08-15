@@ -17,12 +17,26 @@ the adapter, because the adapter prints a path INSIDE that directory and the gat
 it. The cleanup belongs at the gate's end of the contract, once per adapter, or in a trap
 after the report is consumed.
 
-The suite is the multiplier, not the gate. `tests/coverage.bats` invokes the gate 101 times
-through `"$GATE"` alone (the review counted 104 gate invocations in total), and every
-invocation that reaches an adapter leaks one directory that outlives the test's own
-`BATS_TEST_TMPDIR`. One `bats tests/` run leaves on the order of a thousand directories
-behind. Measured at the close of that review: 1,677 in `/tmp` - 4 kcov, 554 gocov, 1,108
-tscov - after the developer had already removed 664.
+The rate is one directory per REAL gate run, and the first version of this entry got that
+badly wrong - it claimed the suite was the multiplier and that one `bats tests/` run leaked
+"on the order of a thousand" directories. Measured twice since, independently, with `TMPDIR`
+pointed at a scratch: `bats tests/coverage.bats` leaves **0**. Its ~100 gate invocations
+supply `--report`, hide the toolchain so the adapter exits before `mktemp`, or route through
+a project coverage command, and none of them reaches an adapter's `mktemp` at all. The whole
+suite leaves **4** - 1 kcov, 2 tscov, 1 gocov - every one of them from `tests/adapters.bats`
+invoking the adapters standalone.
+
+So the 1,677 counted at the close of that review did not come from running the suite. They
+accumulated one at a time across a long session of repeated real gate runs, and the observed
+breakdown (1,108 tscov, 554 gocov, 4 kcov) does not match the 1:2:1 the code produces per
+suite run, which is the tell that the suite was never the source. The correction matters
+beyond the arithmetic: a gate-side fix removes none of the 4 the suite leaves, because their
+caller is a test, so `tests/adapters.bats` has to isolate its own `TMPDIR`.
+
+The lesson about the number is its own lesson. Both wrong figures came from counting what was
+in `/tmp` after a session and attributing it to the loudest nearby loop, rather than measuring
+one run against an isolated `TMPDIR`. A leak rate is a controlled measurement, not a total
+divided by a guess.
 
 `/tmp` here is tmpfs, so the leak is memory. The gate consumes the memory it needs to run,
 which is how the kill in M9 happens at all.
@@ -48,6 +62,16 @@ closed. Two reviews in this task declined to re-run the gate and substituted the
 measurement for precisely this reason - one of them instrumented a `/tmp` copy of the changed
 file with a marker appended on the same physical line, so numbering was untouched, and counted
 153 executions of the line in question from three shipped cells.
+
+Both are now fixed, in task `2026-08-15-coverage-temp-lifetime`. M9: `bash.sh` and `ts.sh`
+capture the status and refuse at `>= 128` with their own message, while a plain non-zero still
+measures - that is the red suite the discarded status existed to tolerate. `go.sh` is left
+unguarded on evidence rather than oversight: a killed `go test` short-circuits to exit 4, and a
+converter killed mid-write leaves XML too truncated for diff-cover to attribute, so every file
+reads as absent and the gate fails closed. M8: the gate mints the directory, hands it over as
+`--out`, and removes it on a trap - the adapters keep `mktemp` as the standalone fallback, since
+their bare invocations in `tests/adapters.bats` are part of the contract. A real gate run now
+leaves zero.
 
 Tier: project. The files, the line numbers and the tmpfs behaviour are this repo's own
 surfaces, and the fix lands here.
