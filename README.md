@@ -127,6 +127,10 @@ Two tiers of learnings: `~/.harmonia/` (global — cross-project patterns; clien
 bash ${CLAUDE_PLUGIN_ROOT}/bin/memory/recall.sh
 ```
 
+## Security
+
+Pointing Harmonia at a repository runs some of that repository's own configuration, so the trust model is written down rather than implied. [`SECURITY.md`](SECURITY.md) states what is guarded — workspace containment, artifact provenance, and consent for a repository's coverage command — and, just as explicitly, which routes are deliberately still open. Report a vulnerability privately through the process it describes, never a public issue.
+
 ## The roster
 
 ideator · scoper · planner · implementer · test engineer · reviewer (review lead) · simplifier · knowledge curator · committer · documentation producer · documentation reviewer · rubber duck
