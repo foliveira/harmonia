@@ -1,6 +1,6 @@
 {
   "name": "harmonia",
-  "description": "Personal SDLC: an agent roster bound by the 4 Karpathy rules, thin lifecycle commands, deterministic enforcement, and compounding memory.",
+  "description": "An SDLC for Claude Code and OpenCode: a twelve-agent roster bound by four working rules, the lifecycle as explicit commands, gates that decide done-ness, and memory that compounds across projects.",
   "version": "2026.08.16",
   "author": {
     "name": "Fabio Oliveira"
