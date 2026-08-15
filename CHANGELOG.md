@@ -1,6 +1,6 @@
 # Changelog
 
-Dates are the release label; installs track `master`.
+Versions are CalVer. Each release names the commit it was cut from, and installs are pinned to it rather than following `master`.
 
 ## 2026.08.16
 

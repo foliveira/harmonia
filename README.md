@@ -15,7 +15,9 @@ claude plugin marketplace add foliveira/harmonia
 claude plugin install harmonia
 ```
 
-The plugin carries a CalVer version (`2026.08.16`) as a dated label on the released tree; installs track `master`, so `claude plugin update harmonia` fetches the current tip rather than the last labelled version. Live behavior runs from the plugin cache — after changing the engine, commit, update, and open a fresh session.
+Installs are pinned to a release, not to `master`: the marketplace entry names the exact commit a CalVer version was cut from, so `claude plugin install` and `claude plugin update` both give you that tree rather than whatever is on the branch. The current release is `2026.08.16`.
+
+Working on the engine itself is a different path — add the repo as a directory marketplace and the plugin runs from your working tree, so a change is live in the next session with no release step.
 
 #### Disabling in a specific repo (client work)
 
