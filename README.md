@@ -125,7 +125,9 @@ Three more commands are neither stages nor touchpoints. One chains stages; two s
 
 ## Memory
 
-Two tiers of learnings: `~/.harmonia/` (global — cross-project patterns; client content is refused here) and `docs/learnings/` in each repo (project tier). Legacy `docs/solutions/` entries are read read-only for continuity. Recall filters by language tags and recency under a budget; run `/harmonia:recall` to pull more mid-session. Any roster agent or hook can run the underlying script directly:
+Two tiers of learnings: a global tier under `~/.harmonia/learnings/` for cross-project patterns, summarized one line each in `~/.harmonia/index.md`, and `docs/learnings/` in each repo for the project tier. `HARMONIA_HOME` moves the global store. Writes go through capture: the knowledge curator files learnings at `/harmonia:capture`, and `/harmonia:remember` files a single one. Capture refuses two of them at the global tier — client-flagged content, which stays project-tier, and an entry carrying no recognized language tag, which the filter below could never surface. That second refusal is overridable, and an entry recorded that way says so in its body.
+
+Recall reads three sources: both tiers, plus legacy `docs/solutions/` entries, read-only, for continuity. Only the global tier is filtered, and it is filtered on language alone: an index line is kept when one of its tags matches a language detected in the repo you are in, read from that repo's tracked file extensions. Project and legacy entries are always relevant to their own repo, so nothing filters them. What is left is ordered newest first and cut at a line budget: 12 lines at session start, 30 when the script runs on its own. Run `/harmonia:recall` to pull more mid-session. Any roster agent or hook can run the underlying script directly:
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/bin/memory/recall.sh

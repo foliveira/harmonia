@@ -43,7 +43,7 @@ Six commands act on a task without advancing a stage: `/harmonia:accept`, `/harm
 
 ### Memory
 
-Two tiers: `~/.harmonia/` for cross-project patterns and `docs/learnings/` per repo. Client content is refused from the global tier. Recall filters by language tags and recency under a budget, and runs automatically at session start.
+Two tiers: `~/.harmonia/` for cross-project patterns and `docs/learnings/` per repo, plus legacy `docs/solutions/` entries read-only. Client content is refused from the global tier, as is an entry carrying no recognized language tag. Recall filters the global tier by language-tag overlap with the repo, leaves project and legacy entries unfiltered, and returns what is left newest-first under a line budget — automatically at session start, and on demand.
 
 ### Setup
 
