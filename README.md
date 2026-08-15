@@ -15,7 +15,7 @@ claude plugin marketplace add foliveira/harmonia
 claude plugin install harmonia
 ```
 
-Every commit to this repo is an auto-update on installed machines (the plugin declares no version). Live behavior runs from the plugin cache: after changing the engine, commit, run `claude plugin update harmonia`, and open a fresh session.
+The plugin declares no version, so there is no release step: `claude plugin update harmonia` always fetches the current `master`. Live behavior runs from the plugin cache — after changing the engine, commit, update, and open a fresh session.
 
 #### Disabling in a specific repo (client work)
 
@@ -102,6 +102,16 @@ Six commands act on a task outside the lifecycle stages: they record your decisi
 | `/harmonia:remember` | Captures a single learning into the right memory tier. |
 | `/harmonia:recall` | Surfaces relevant past learnings for the current repo mid-session. |
 | `/harmonia:status` | Read-only readout of the active task's stage, markers, and receipts. |
+
+### Outside the lifecycle
+
+Three more commands are neither stages nor touchpoints. One chains stages; two set a repo up before any task runs.
+
+| Command | What it does |
+|---|---|
+| `/harmonia:flow` | Runs an already-pinned task through plan, implement, and review in one unattended pass. It chains neither end: discuss stays manual because it is dialogic, and acceptance stays manual under the human-only gate. |
+| `/harmonia:onboard` | Captures an existing repo's canonical verify commands and its own coverage command into `.harmonia/project.yaml`. |
+| `/harmonia:trust` | Records your consent, on this machine, to run a repository's `.harmonia/project.yaml` coverage command. Until you do, that command is refused. |
 
 ## The gates
 
