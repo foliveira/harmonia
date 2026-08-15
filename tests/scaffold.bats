@@ -27,6 +27,15 @@ setup() {
   run jq -er '.plugins[0].source' "$REPO_ROOT/.claude-plugin/marketplace.json"
   [ "$status" -eq 0 ]
   [ -n "$output" ]
+  # Installs are pinned to a release commit, not to whatever master carries. A
+  # non-empty source is satisfied by a typo, so assert the pin itself: 40 hex
+  # over an https remote. The sha moves every release; its shape does not.
+  run jq -er '.plugins[0].source.sha' "$REPO_ROOT/.claude-plugin/marketplace.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^[0-9a-f]{40}$ ]]
+  run jq -er '.plugins[0].source.url' "$REPO_ROOT/.claude-plugin/marketplace.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^https://.*\.git$ ]]
 }
 
 @test "LICENSE is MIT with current year and holder" {

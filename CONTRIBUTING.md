@@ -41,6 +41,16 @@ Two things the review checks specifically:
 
 Coverage on changed lines is 100%, a soft block. Exemptions are in-code markers carrying a justification (`# harmonia:exempt <why>`) and they are read in review — restructuring so a line is genuinely exercised is almost always the better answer.
 
+## Cutting a release
+
+Installs are pinned, so a release is three steps and the order matters:
+
+1. Bump `version` in `.claude-plugin/plugin.json` to today's date, `YYYY.MM.DD`, and add the section to `CHANGELOG.md`. Commit. **This commit is the release.**
+2. Tag it with the same string: `git tag -a 2026.08.16 -m 'Release 2026.08.16'`.
+3. Point `.claude-plugin/marketplace.json`'s `source.sha` at that commit and commit *that* separately.
+
+The pin cannot live in the commit it names, so the marketplace entry always trails the release by one commit. That is intended: Claude Code reads the marketplace from the default branch and takes the plugin content from the pinned sha, so what a user installs is step 1's tree and nothing after it.
+
 ## Commits
 
 Single concern per commit, and a message that says what the change does and why. Describe the shipped behaviour rather than the journey: no round numbers, no narration of what was tried and abandoned.
