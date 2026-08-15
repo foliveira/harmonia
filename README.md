@@ -15,7 +15,7 @@ claude plugin marketplace add foliveira/harmonia
 claude plugin install harmonia
 ```
 
-The plugin declares no version, so there is no release step: `claude plugin update harmonia` always fetches the current `master`. Live behavior runs from the plugin cache — after changing the engine, commit, update, and open a fresh session.
+The plugin carries a CalVer version (`2026.08.16`) as a dated label on the released tree; installs track `master`, so `claude plugin update harmonia` fetches the current tip rather than the last labelled version. Live behavior runs from the plugin cache — after changing the engine, commit, update, and open a fresh session.
 
 #### Disabling in a specific repo (client work)
 
