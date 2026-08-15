@@ -2072,3 +2072,209 @@ SH
   [ ! -f "$BATS_TEST_TMPDIR/REPO-SH-RAN" ] || { echo "with every PATH entry filtered away, the bare word sh resolved from the current directory and the repository's own ./sh ran as the interpreter - $output"; false; }
   [ -f "$BATS_TEST_TMPDIR/MINE" ] || { echo "with every PATH entry filtered away the attested value did not run at all, so the floor is missing rather than wrong - $output"; false; }
 }
+
+# --- adapter temp lifetime, and what a killed coverage run may report ---------
+# M8 and M9 from review round 7 of 2026-08-11-project-config-trust.
+#
+# M9 first, because it is the one that decides a verdict. A kcov the OOM killer
+# takes can already have written a report, `bash.sh:17` ends `|| true` and throws
+# the status away, and the gate then measures whatever the corpse left. Its
+# fail-closed rule for missing data is per FILE, so a run killed AFTER it reached
+# the changed file passes: both outcomes were seen at one digest in that task,
+# round 6 reporting `FAIL ... absent from coverage data` and round 7's two killed
+# runs reporting `gate: OK ... Uncovered changed lines: none`.
+#
+# M8 is the leak that gets kcov killed: every gate run that reaches an adapter
+# leaves the adapter's output directory behind, and /tmp is tmpfs on the machine
+# this was found on. The rate is per gate run and NOT per test - measured at
+# 5fe85ad, this file leaves nothing at all, because its ~100 gate invocations
+# either supply --report or hide the toolchain and so never reach an adapter's
+# mktemp; what one `bats tests/` run leaves comes from the standalone adapter
+# calls in tests/adapters.bats, and is owned there. The accumulation that starves
+# the machine is repeated REAL gate runs, one directory each.
+#
+# Every test below drives the real gate with a fake toolchain and a TMPDIR of its
+# own: none of them runs kcov, vitest or go, and none of them writes into the
+# machine's /tmp.
+
+# Fakes and a private TMPDIR, inside the tree bats already cleans up.
+cov_sandbox() {
+  FAKE="$BATS_TEST_TMPDIR/fakebin"; TDIR="$BATS_TEST_TMPDIR/tmpscratch"
+  mkdir -p "$FAKE" "$TDIR"
+}
+
+# A committed shell script with one changed line - the diff that routes the gate
+# to the bash adapter. Sets SB to the commit it is changed against.
+sh_change() {
+  git -C "$R" checkout -q -- app.ts
+  printf '#!/bin/sh\necho hi\n' > "$R/tool.sh"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm sh
+  SB="$(git -C "$R" rev-parse HEAD)"
+  printf '#!/bin/sh\necho changed\n' > "$R/tool.sh"
+}
+
+# A kcov that writes a well-formed report naming the changed file as covered and
+# then ends however $1 says. Partial is the point: a kcov killed after it reached
+# tool.sh but before the suite finished leaves exactly this behind.
+fake_kcov() {   # $1: 'exit 0' | 'exit 1' | 'kill -9 $$'
+  cat > "$FAKE/kcov" <<'FAKEEOF'
+#!/usr/bin/env bash
+out="$2"          # args: --include-path=<p> <outdir> <bats> <tests>
+mkdir -p "$out/kcov-merged"
+cat > "$out/kcov-merged/cobertura.xml" <<'XML'
+<?xml version="1.0" ?>
+<coverage line-rate="1.0" version="1.9" timestamp="1">
+  <packages><package name="p" line-rate="1.0"><classes>
+    <class name="tool" filename="tool.sh" line-rate="1.0">
+      <lines><line number="1" hits="1"/><line number="2" hits="1"/></lines>
+    </class>
+  </classes></package></packages>
+</coverage>
+XML
+FAKEEOF
+  echo "$1" >> "$FAKE/kcov"
+  chmod +x "$FAKE/kcov"
+}
+
+# The same for vitest. The --version probe the adapter runs first exits before
+# the ending, so $1 lands only on the run that produces the report.
+fake_npx() {   # $1: 'exit 0' | 'kill -9 $$'
+  cat > "$FAKE/npx" <<'FAKEEOF'
+#!/usr/bin/env bash
+outdir=""
+for a in "$@"; do case "$a" in --coverage.reportsDirectory=*) outdir="${a#*=}" ;; esac; done
+[ -z "$outdir" ] && exit 0
+mkdir -p "$outdir"
+cat > "$outdir/cobertura-coverage.xml" <<'XML'
+<?xml version="1.0" ?>
+<coverage line-rate="1.0" version="1.9" timestamp="1">
+  <packages><package name="app" line-rate="1.0"><classes>
+    <class name="app" filename="app.ts" line-rate="1.0">
+      <lines><line number="1" hits="1"/><line number="2" hits="1"/><line number="3" hits="1"/><line number="4" hits="1"/><line number="5" hits="1"/></lines>
+    </class>
+  </classes></package></packages>
+</coverage>
+XML
+FAKEEOF
+  echo "$1" >> "$FAKE/npx"
+  chmod +x "$FAKE/npx"
+}
+
+@test "a killed kcov cannot measure, however complete the report it left behind looks" {
+  cov_sandbox
+  sh_change
+  # A signal after the report is on disk: the OOM killer's shape exactly, and the
+  # one `bash.sh:17`'s `|| true` cannot tell from a clean finish. The report names
+  # the changed file as covered, so the absent-means-uncovered rule does not fire
+  # and the gate has nothing left to notice with.
+  fake_kcov 'kill -9 $$'
+  run env HARMONIA_KCOV="$FAKE/kcov" TMPDIR="$TDIR" bash "$GATE" --repo "$R" --base "$SB" --workspace "$WS"
+  [ "$status" -eq 4 ] || { echo "a kcov killed by a signal was measured as though it had finished, and the verdict came from whatever it had written by the time it died - $output"; false; }
+  [[ "$output" == *"cannot measure"* ]]
+  # ...and it is THIS cannot-measure: the unsupported-language advisory exits 4
+  # too, and would satisfy the two assertions above without the run being refused.
+  [[ "$output" != *"unsupported language"* ]]
+}
+
+@test "a failing suite still measures - a non-zero kcov is not a killed one" {
+  cov_sandbox
+  sh_change
+  # kcov returns the status of the program it ran, so a red bats suite arrives
+  # here as a plain exit 1 with a complete report. That is the case `|| true` was
+  # written for, and it is the case a fix must not take with it: refusing on any
+  # non-zero status stops the gate measuring exactly when the suite is red, which
+  # is when a developer most needs to know what the diff covers.
+  # Green at base by construction and deliberately so - this is the accept side,
+  # and no red-first test can force it (2026-08-01 learning).
+  fake_kcov 'exit 1'
+  run env HARMONIA_KCOV="$FAKE/kcov" TMPDIR="$TDIR" bash "$GATE" --repo "$R" --base "$SB" --workspace "$WS"
+  [ "$status" -eq 0 ] || { echo "kcov exiting 1 - a failing suite, not a killed run - stopped the gate measuring - $output"; false; }
+  [[ "$output" == *"gate: OK"* ]]
+}
+
+@test "a killed vitest cannot measure either" {
+  cov_sandbox
+  # The same shape one adapter over: `ts.sh:13-14` discards the status of the run
+  # and then judges it by whether the file exists, so a vitest killed after the
+  # report is written reads as a clean pass. Reproduced through the gate at
+  # 5fe85ad: `gate: OK`. Widening beyond the line M9 names, and measured.
+  fake_npx 'kill -9 $$'
+  run env PATH="$FAKE:$PATH" TMPDIR="$TDIR" bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ "$status" -eq 4 ] || { echo "a vitest killed by a signal was measured as though it had finished - $output"; false; }
+  [[ "$output" == *"cannot measure"* ]]
+}
+
+@test "the gate leaves no temp directory behind when it measures" {
+  cov_sandbox
+  sh_change
+  fake_kcov 'exit 0'
+  run env HARMONIA_KCOV="$FAKE/kcov" TMPDIR="$TDIR" bash "$GATE" --repo "$R" --base "$SB" --workspace "$WS"
+  [ "$status" -eq 0 ] || { echo "premise: this run has to reach the adapter and measure cleanly - $output"; false; }
+  leaked="$(ls -A "$TDIR")"
+  [ -z "$leaked" ] || { echo "the gate run left this behind under its own TMPDIR: $leaked - one directory per gate run, on tmpfs, and the gate is what runs out of memory" ; false; }
+}
+
+@test "the gate leaves no temp directory behind when it cannot measure" {
+  cov_sandbox
+  sh_change
+  # A kcov that runs and produces nothing, so the adapter takes its own exit-4
+  # path AFTER it has already made the output directory: the exit that reports
+  # honestly is also the one that leaks. Cleanup that only runs where the report
+  # was consumed cannot reach this, and the killed-run refusal above adds a second
+  # exit on the same stretch.
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKE/kcov"
+  chmod +x "$FAKE/kcov"
+  run env HARMONIA_KCOV="$FAKE/kcov" TMPDIR="$TDIR" bash "$GATE" --repo "$R" --base "$SB" --workspace "$WS"
+  [ "$status" -eq 4 ] || { echo "premise: this run has to reach the adapter and be refused by it - $output"; false; }
+  leaked="$(ls -A "$TDIR")"
+  [ -z "$leaked" ] || { echo "the gate run left this behind under its own TMPDIR after refusing to measure: $leaked"; false; }
+}
+
+@test "the gate leaves no temp directory behind for the ts adapter" {
+  cov_sandbox
+  # ts and go are separate code paths from bash, and they are the bulk of what
+  # accumulates: of the 1,677 directories counted in /tmp at the close of round 7,
+  # 1,108 were tscov and 554 gocov against 4 kcov. A fix read into `bash.sh`
+  # alone leaves the two larger producers running.
+  fake_npx 'exit 0'
+  run env PATH="$FAKE:$PATH" TMPDIR="$TDIR" bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [[ "$output" != *"cannot measure"* ]] || { echo "premise: the ts adapter has to get past its toolchain check and produce a report - $output"; false; }
+  leaked="$(ls -A "$TDIR")"
+  [ -z "$leaked" ] || { echo "the ts adapter's output directory outlived the gate run: $leaked"; false; }
+}
+
+@test "the gate leaves no temp directory behind for the go adapter" {
+  cov_sandbox
+  git -C "$R" checkout -q -- app.ts
+  printf 'a1\na2\n' > "$R/one.go"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm gofile
+  GB="$(git -C "$R" rev-parse HEAD)"
+  printf 'a1\nA2\n' > "$R/one.go"
+  cat > "$FAKE/go" <<'FAKEEOF'
+#!/usr/bin/env bash
+case "$1" in
+  list) echo "example.com/mod" ;;
+  test) for a in "$@"; do case "$a" in -coverprofile=*) echo "mode: set" > "${a#-coverprofile=}" ;; esac; done ;;
+esac
+exit 0
+FAKEEOF
+  cat > "$FAKE/gocover-cobertura" <<'FAKEEOF'
+#!/usr/bin/env bash
+cat <<'XML'
+<?xml version="1.0" ?>
+<coverage line-rate="1.0" version="1.9" timestamp="1">
+  <packages><package name="p" line-rate="1.0"><classes>
+    <class name="x" filename="example.com/mod/one.go" line-rate="1.0">
+      <lines><line number="1" hits="1"/><line number="2" hits="1"/></lines>
+    </class>
+  </classes></package></packages>
+</coverage>
+XML
+FAKEEOF
+  chmod +x "$FAKE/go" "$FAKE/gocover-cobertura"
+  run env HARMONIA_GO="$FAKE/go" HARMONIA_GOCOVER="$FAKE/gocover-cobertura" TMPDIR="$TDIR" \
+    bash "$GATE" --repo "$R" --base "$GB" --workspace "$WS"
+  [[ "$output" != *"cannot measure"* ]] || { echo "premise: the go adapter has to get past its toolchain checks and produce a report - $output"; false; }
+  leaked="$(ls -A "$TDIR")"
+  [ -z "$leaked" ] || { echo "the go adapter's output directory outlived the gate run: $leaked"; false; }
+}

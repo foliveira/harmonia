@@ -4,6 +4,18 @@
 
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+  # An adapter's output directory is its product: it prints a path inside it and
+  # its caller reads the report, so it cannot delete it on the way out and the
+  # CALLER owns the lifetime. Here the caller is this file, and these six
+  # standalone invocations are the whole of what `bats tests/` leaves on /tmp -
+  # measured at 5fe85ad: 4 directories per run (1 kcov, 2 tscov, 1 gocov) from
+  # this file and 0 from tests/coverage.bats, whose gate invocations all supply
+  # a report or hide the toolchain and so never reach an adapter's mktemp. /tmp
+  # is tmpfs on the machine this was found on, so those are memory. Pointing
+  # TMPDIR at the per-test directory bats already removes owns them without
+  # constraining the adapter, which must keep working invoked bare.
+  export TMPDIR="$BATS_TEST_TMPDIR/tmp"
+  mkdir -p "$TMPDIR"
   R="$BATS_TEST_TMPDIR/target"
   mkdir -p "$R"
   git -C "$R" init -q

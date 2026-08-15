@@ -343,7 +343,18 @@ if [ -n "$CODE_FILES" ]; then
       # to the command branch above.
       lang="$LANG_FORCE"
       [ -z "$lang" ] && lang="$(echo "$CODE_FILES" | head -1 | xargs -I{} bash -c 'f="{}"; case "${f##*.}" in ts|tsx|js|jsx) echo ts;; go) echo go;; sh|bats) echo bash;; esac')"
-      REPORT="$(bash "$HERE/$lang.sh" --repo "$REPO")" || { echo "gate: cannot measure - adapter for '$lang' reported a missing tool" ; exit 4; }
+      # An adapter prints a path INSIDE its output directory, so it cannot delete
+      # that directory on the way out - the caller owns the lifetime, and here
+      # the caller is this gate. Left to the adapters it leaked one directory per
+      # gate run onto /tmp, which is tmpfs, so the leak is the memory this gate
+      # goes on to spend measuring - and the adapters now refuse a run killed for
+      # it rather than reporting its remains. The trap and not an `rm` at the end:
+      # the adapter's refusal on the next line exits after the directory exists,
+      # so the honest exit was also the leaking one. A --report or a project
+      # coverage command never reaches here and mints nothing to remove.
+      COV_OUT="$(mktemp -d -t harmonia-cov-XXXXXX)"
+      trap 'rm -rf "$COV_OUT"' EXIT
+      REPORT="$(bash "$HERE/$lang.sh" --repo "$REPO" --out "$COV_OUT")" || { echo "gate: cannot measure - adapter for '$lang' reported a missing tool" ; exit 4; }
     fi
   fi
   command -v diff-cover >/dev/null 2>&1 || { echo "gate: cannot measure - diff-cover is not installed"; exit 4; }
