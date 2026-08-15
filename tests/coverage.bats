@@ -4,7 +4,17 @@
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
   export PATH="$PATH:$HOME/.local/bin"
+  # Isolated consent store (tests/memory.bats:6, tests/hooks.bats:6). The
+  # project-coverage tests below record consent to run a repository's command,
+  # and without this they write into the developer's real ~/.harmonia and read
+  # back whatever is already there (2026-07-31 learning: a fixture whose verdict
+  # depends on an ambient environment value goes green against the build it
+  # exists to reject). HOME is deliberately NOT overridden - the line above
+  # derives PATH from it - and HARMONIA_HOME alone is sufficient isolation
+  # because it wins over HOME wherever the store root is resolved.
+  export HARMONIA_HOME="$BATS_TEST_TMPDIR/harmonia-home"
   GATE="$REPO_ROOT/bin/coverage/gate.sh"
+  TRUST="$REPO_ROOT/bin/trust.sh"
 
   R="$BATS_TEST_TMPDIR/target"
   mkdir -p "$R"
@@ -392,9 +402,28 @@ JSON
   # report lying around), writes a Cobertura report over calc.py with changed
   # lines 4 and 5 uncovered, and echoes the report path - the seam's output
   # contract. Relative paths resolve because the gate runs it from $REPO.
-  cat > "$R/.harmonia/project.yaml" <<'YAML'
-coverage: touch cmd-ran.sentinel && printf '<?xml version="1.0"?>\n<coverage line-rate="0.5" version="1.9" timestamp="1">\n<packages><package name="c" line-rate="0.5"><classes>\n<class name="calc" filename="calc.py" line-rate="0.5"><lines>\n<line number="2" hits="1"/>\n<line number="4" hits="0"/>\n<line number="5" hits="0"/>\n</lines></class>\n</classes></package></packages>\n</coverage>\n' > pycov.xml && echo pycov.xml
-YAML
+  #
+  # The work moved from the coverage: line into a wrapper script this round: a
+  # value has to be one of the shapes consent can be recorded for, and a bare
+  # `touch … && printf … > pycov.xml` is not one of them. It is also the shape the
+  # round tells a repository to write, so this accept-side proof now runs the
+  # spelling the documents recommend.
+  cat > "$R/.harmonia/pycov.sh" <<'SH'
+#!/bin/sh
+touch cmd-ran.sentinel
+printf '<?xml version="1.0"?>\n<coverage line-rate="0.5" version="1.9" timestamp="1">\n<packages><package name="c" line-rate="0.5"><classes>\n<class name="calc" filename="calc.py" line-rate="0.5"><lines>\n<line number="2" hits="1"/>\n<line number="4" hits="0"/>\n<line number="5" hits="0"/>\n</lines></class>\n</classes></package></packages>\n</coverage>\n' > pycov.xml
+SH
+  chmod +x "$R/.harmonia/pycov.sh"
+  printf 'coverage: sh .harmonia/pycov.sh && echo pycov.xml\n' > "$R/.harmonia/project.yaml"
+
+  # Consent, recorded on this machine for this tree, is what makes that value
+  # runnable at all: the gate reads a record kept outside every repository before
+  # it evals. This is the suite's ACCEPT-side proof of the widened firing domain -
+  # gate.sh:202 widening the .py, gate.sh:260 running the command, and a report
+  # genuinely consumed - which the task criteria cannot carry for long, because
+  # they live in a gitignored workspace and stop being runnable when it closes.
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
 
   run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"  # NO --lang, NO --report
   [ -f "$R/cmd-ran.sentinel" ]                                 # the gate actually RAN the command
@@ -412,7 +441,15 @@ YAML
   grep -q "calc.py" "$WS/gate-report.md"
 }
 
-@test "a project coverage command that fails yields cannot-measure, not the advisory path" {
+# Both seams this pins - the `|| exit 4` when the command fails and the `-f`
+# guard when it names no readable report - now live BELOW the consent guard, so
+# an unattested fixture never reaches either of them: it witnesses the refusal
+# instead, and would go green on a build that refuses everything while exercising
+# neither seam. Recording consent for each value before the run is what keeps the
+# test about what it says it is about; the `!= *project.yaml*` assertions are how
+# it says so out loud, since every consent refusal names that file and neither
+# message below does.
+@test "an attested project coverage command that fails yields cannot-measure, not the advisory path" {
   git -C "$R" checkout -q -- app.ts
   printf 'p1\np2\n' > "$R/calc.py"
   git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm pybase
@@ -421,18 +458,140 @@ YAML
   mkdir -p "$R/.harmonia"
 
   # A present command that exits non-zero exercises the seam's `|| { ... exit 4; }`.
-  printf 'coverage: exit 7\n' > "$R/.harmonia/project.yaml"
+  # Through a wrapper because a bare `exit 7` is not a shape consent can be
+  # recorded for, and an unrecordable value never reaches this seam at all.
+  printf '#!/bin/sh\nexit 7\n' > "$R/.harmonia/fail.sh"
+  chmod +x "$R/.harmonia/fail.sh"
+  printf 'coverage: sh .harmonia/fail.sh\n' > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
   run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
   [ "$status" -eq 4 ]
   [[ "$output" == *"project coverage command"* ]]             # names the command path...
   [[ "$output" != *"unsupported language"* ]]                 # ...not the advisory path
+  [[ "$output" != *"project.yaml"* ]]                         # ...and not the consent refusal above it
 
   # A present command that exits 0 but names no readable report exercises the -f guard.
   printf 'coverage: echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"                        # a different string: the old record does not cover it
+  [ "$status" -eq 0 ]
   run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
   [ "$status" -eq 4 ]
   [[ "$output" == *"project coverage command"* ]]
   [[ "$output" != *"unsupported language"* ]]
+  [[ "$output" != *"project.yaml"* ]]
+}
+
+# --- project coverage command: consent, recorded outside every repository -----
+# The value at .harmonia/project.yaml `coverage:` is a shell command this gate
+# evals, and a repository can commit one. Provenance cannot answer it - a TRACKED
+# project.yaml is the legitimate case - so what is asked instead is whether a
+# human on THIS machine agreed to THIS command for THIS tree. The two tests below
+# are the reject side of that; the .py measurement test above is its accept side.
+
+@test "an unattested project coverage command is refused, never run, and leaves no report or receipt behind" {
+  git -C "$R" checkout -q -- app.ts
+  printf 'p1\np2\np3\np4\n' > "$R/calc.py"
+  # COMMITTED, which is what a clone delivers and what onboard tells a repo to
+  # produce: provenance answers "carried by the repository" for exactly the file
+  # we are meant to honour, so nothing upstream of the eval refuses this.
+  #
+  # The value is one the recorder WOULD accept if anyone had recorded it, which is
+  # what keeps this test about consent: a build with no consent machinery at all
+  # can refuse a value it cannot parse, and a fixture that is unattestable as well
+  # as unattested would pass against that build while proving nothing.
+  cat > "$R/.harmonia/cov.sh" <<'SH'
+#!/bin/sh
+touch cmd-ran.sentinel
+printf '<?xml version="1.0"?>\n<coverage line-rate="0.5" version="1.9" timestamp="1">\n<packages><package name="c" line-rate="0.5"><classes>\n<class name="calc" filename="calc.py" line-rate="0.5"><lines>\n<line number="2" hits="1"/>\n<line number="4" hits="0"/>\n</lines></class>\n</classes></package></packages>\n</coverage>\n' > pycov.xml
+SH
+  chmod +x "$R/.harmonia/cov.sh"
+  printf 'coverage: sh .harmonia/cov.sh && echo pycov.xml\n' > "$R/.harmonia/project.yaml"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm pybase
+  PB="$(git -C "$R" rev-parse HEAD)"
+  printf 'p1\nCHANGED2\np3\nCHANGED4\nNEW5\n' > "$R/calc.py"
+
+  run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
+  [ ! -f "$R/cmd-ran.sentinel" ]                   # the value did not execute
+  [ "$status" -eq 4 ]                              # the gate.sh:71-72 shape, not a coverage verdict
+  [[ "$output" == *"cannot measure"* ]]
+  [[ "$output" == *".harmonia/project.yaml"* ]]    # names the file to read...
+  [[ "$output" == *"/harmonia:trust"* ]]           # ...and the human command that authorises it
+  [[ "$output" != *"trust.sh"* ]]                  # never the script path that clears the refusal
+  [[ "$output" != *"adapter for"* ]]               # refused outright, not sanitized to empty and dropped
+                                                   # through gate.sh:247 into the adapter and past :254
+  [ ! -f "$WS/gate-report.md" ]
+  # A receipt written at refusal time is fresh by construction and sets cov_seen,
+  # so --verify-receipts would answer `receipts verified` over a tree nothing
+  # measured. Refusing must leave the workspace exactly as it found it.
+  [ ! -f "$WS/receipts/coverage.json" ]
+
+  # No home to look the record up in: a named refusal on a path that runs at
+  # every implement round, never an unbound-variable death under `set -u`
+  # (bin/memory/store-lib.sh:7 dereferences $HOME bare; this seam may not).
+  run env -u HOME -u HARMONIA_HOME bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
+  [ ! -f "$R/cmd-ran.sentinel" ]
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"cannot measure"* ]]
+  [[ "$output" != *"unbound variable"* ]]
+  [ ! -f "$WS/receipts/coverage.json" ]
+}
+
+@test "editing the coverage command after consent refuses it again, and restoring the attested string runs it" {
+  git -C "$R" checkout -q -- app.ts
+  printf 'p1\np2\np3\np4\n' > "$R/calc.py"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm pybase
+  PB="$(git -C "$R" rev-parse HEAD)"
+  printf 'p1\nCHANGED2\np3\nCHANGED4\nNEW5\n' > "$R/calc.py"
+  # The report fixture lives outside the repo so it joins no diff; the command
+  # copies it in, which keeps the whole seam real (a consumed report) while the
+  # attested string stays short enough to edit one byte of.
+  cat > "$BATS_TEST_TMPDIR/pyfix.xml" <<'XML'
+<?xml version="1.0" ?>
+<coverage line-rate="0.5" version="1.9" timestamp="1">
+  <packages><package name="c" line-rate="0.5"><classes>
+    <class name="calc" filename="calc.py" line-rate="0.5"><lines>
+      <line number="2" hits="1"/><line number="4" hits="0"/><line number="5" hits="0"/>
+    </lines></class>
+  </classes></package></packages>
+</coverage>
+XML
+  # The copy runs from a wrapper because the attested string has to be a shape
+  # consent can be recorded for; the sentinel and the copied report are unchanged.
+  printf '#!/bin/sh\ntouch cmd-ran.sentinel\ncp %s/pyfix.xml pycov.xml\n' "$BATS_TEST_TMPDIR" > "$R/.harmonia/cov.sh"
+  chmod +x "$R/.harmonia/cov.sh"
+  attested="sh .harmonia/cov.sh && echo pycov.xml"
+  printf 'coverage: %s\n' "$attested" > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+
+  # One segment added in front of the attested string - the shape of a clone
+  # editing a command the developer already agreed to, and of a developer changing
+  # their own. The record digests the command, so it no longer covers this one.
+  # The edit is itself attestable, so the only thing that can refuse it is the
+  # consent check and not some parser upstream of it.
+  printf '#!/bin/sh\ntouch edited.sentinel\n' > "$R/.harmonia/edited.sh"
+  chmod +x "$R/.harmonia/edited.sh"
+  printf 'coverage: sh .harmonia/edited.sh && %s\n' "$attested" > "$R/.harmonia/project.yaml"
+  run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
+  [ ! -f "$R/edited.sentinel" ]
+  [ ! -f "$R/cmd-ran.sentinel" ]
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"cannot measure"* ]]
+  [[ "$output" == *".harmonia/project.yaml"* ]]
+  [[ "$output" == *"/harmonia:trust"* ]]
+  [ ! -f "$WS/receipts/coverage.json" ]
+
+  # Restored: the same record covers the same string again. A consent guard that
+  # cannot be satisfied is over-refusal, and the accept side needs its own proof.
+  # The exit code is deliberately unasserted here - it depends on whether
+  # diff-cover is installed, which is an environment fact and not a build one -
+  # so what is asserted is that the command RAN and that nothing refused it.
+  printf 'coverage: %s\n' "$attested" > "$R/.harmonia/project.yaml"
+  run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
+  [ -f "$R/cmd-ran.sentinel" ]
+  [[ "$output" != *"/harmonia:trust"* ]]
+  [[ "$output" != *".harmonia/project.yaml"* ]]
 }
 
 @test "with no coverage command configured the gate falls back to the built-in adapter" {
@@ -453,6 +612,15 @@ YAML
   run env HARMONIA_KCOV=/nonexistent-kcov bash "$GATE" --repo "$R" --base "$SB" --workspace "$WS"
   [ "$status" -eq 4 ]
   [[ "$output" == *"cannot measure"* ]]
+  # The two assertions above are satisfied by ANY cannot-measure refusal, so on
+  # their own they go green against a build that refuses this repo for HAVING a
+  # project.yaml - a guard keyed on the file existing rather than on a command
+  # being about to run. These two say which cannot-measure this is: the adapter
+  # was reached and reported its missing tool, and nothing refused the config.
+  # Green at base by construction, and deliberately so - this is the over-refusal
+  # side, and no reject-side test can force it.
+  [[ "$output" == *"adapter for"* ]]
+  [[ "$output" != *"project.yaml"* ]]
 }
 
 # --- receipt integrity: the audit must name the coverage gate -----------------
@@ -1111,4 +1279,547 @@ JSON
   echo "accept: status=$status $output"
   [ "$status" -eq 0 ]
   [[ "$output" == *"gate: OK"* ]]
+}
+
+# --- where the consent guard fires, and on what it binds ----------------------
+# The guard's firing DOMAIN was unpinned, and the cost of that was measured: a
+# build with the same guard wrapped in `if [ -n "$WS" ]` passes the whole suite
+# and every criterion of the round that introduced it while running an unattested
+# payload, because every fixture that reached this seam happened to pass
+# --workspace. A second one keyed on --base having been given behaves identically.
+# A single extra cell does not close that - the gap is a domain - so both
+# directions below are looped over the flag shapes a caller can produce, and the
+# one shape that executes nothing is held to the opposite promise.
+
+gate_shape() {   # <flag list>: the gate over $R with only these flags beside --repo
+  rm -f "$R/cmd-ran.sentinel"
+  run bash "$GATE" --repo "$R" $1   # deliberately unquoted: $1 is a flag list, not a path
+}
+
+@test "the consent guard fires in every flag shape that reaches the eval, and not on a run that executes nothing" {
+  # A wrapper, because the value has to be recordable for the accept half of this
+  # test to exist at all; the sentinel it touches is what both halves judge.
+  printf '#!/bin/sh\ntouch cmd-ran.sentinel\n' > "$R/.harmonia/cov.sh"
+  chmod +x "$R/.harmonia/cov.sh"
+  printf 'coverage: sh .harmonia/cov.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  # The report path is deliberately unreadable: what the accept side has to prove
+  # is that the command RAN, and judging that by a sentinel on disk rather than by
+  # an exit code keeps the cells independent of whether diff-cover is installed,
+  # which is an environment fact and not a build one (2026-07-31 learning).
+  local shapes=(
+    ""                                   # --repo alone: no base, no workspace
+    "--base $BASE"
+    "--workspace $WS"
+    "--base $BASE --workspace $WS"
+    "--base $BASE --lang bash"
+    "--base $BASE --no-branch"
+  )
+  local s
+  for s in "${shapes[@]}"; do
+    gate_shape "$s"
+    [ ! -f "$R/cmd-ran.sentinel" ] || { echo "reject[$s]: an unattested command ran"; false; }
+    [ "$status" -eq 4 ] || { echo "reject[$s]: exit $status, not 4 - $output"; false; }
+    [[ "$output" == *".harmonia/project.yaml"* ]] || { echo "reject[$s]: not the consent refusal - $output"; false; }
+  done
+  # The other direction, and it is what keeps the guard inside `[ -z "$REPORT" ]`:
+  # a run handed a report executes nothing, so there is nothing to have consented
+  # to and refusing it would be over-refusal.
+  write_ts_cov
+  rm -f "$R/cmd-ran.sentinel"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --report "$R/cov.xml" --lang ts
+  [ ! -f "$R/cmd-ran.sentinel" ]
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  for s in "${shapes[@]}"; do
+    gate_shape "$s"
+    [ -f "$R/cmd-ran.sentinel" ] || { echo "accept[$s]: the attested command did not run - $output"; false; }
+    [[ "$output" != *".harmonia/project.yaml"* ]] || { echo "accept[$s]: refused an attested command - $output"; false; }
+  done
+}
+
+@test "a commit that rewrites the script the attested command names runs at the gate, while an edit to the command itself does not" {
+  # INVERTED IN ROUND 5, at the seam, and judged by a sentinel on disk rather than
+  # by the absence of a phrase: five of seven admitted shapes exit 4 with `cannot
+  # measure - produced no readable report` whichever way consent went, so an
+  # accept cell written as "the refusal is not printed" proves nothing on its own.
+  #
+  # This is the retirement's end-to-end cell. `sh .harmonia/cov.sh` is what
+  # onboard's certification flow produces, and its whole job is to run the
+  # repository's test suite - hundreds of files no record ever covered - so
+  # refusing the rewrite of that one file stopped a repository editing its own
+  # coverage wrapper and stopped nothing else. What the developer agreed to is the
+  # string, and the string is what the gate compares.
+  printf '#!/bin/sh\ntouch script-ran.sentinel\necho /nonexistent/nope.xml\n' > "$R/.harmonia/cov.sh"
+  chmod +x "$R/.harmonia/cov.sh"
+  printf 'coverage: sh .harmonia/cov.sh\n' > "$R/.harmonia/project.yaml"
+  # COMMITTED, which is what a clone delivers: provenance answers "carried by the
+  # repository" for exactly the files we are meant to honour.
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm cov
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$R/script-ran.sentinel" ]                  # control: the tree as the developer read it runs
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+  rm -f "$R/script-ran.sentinel"
+
+  printf '#!/bin/sh\ntouch payload.sentinel\ntouch script-ran.sentinel\necho /nonexistent/nope.xml\n' > "$R/.harmonia/cov.sh"
+  # COMMITTED, which is what the cell's title says and what its assertions are
+  # about. Without this line the rewrite is a working-tree edit, and a build
+  # binding COMMITTED state - a `tree-head:` line in the record, a digest of `git
+  # rev-parse HEAD`, anything keyed on what a clone delivers rather than on what
+  # is on disk - passes this cell and the whole of `bats tests/` while refusing
+  # every repository that lands a commit. The rewrite a clone delivers is a
+  # commit, and this is the retirement's end-to-end cell.
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm rewrite
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$R/payload.sentinel" ] || { echo "a commit that rewrote the script the attested command names stopped the gate running it - $output"; false; }
+  [ -f "$R/script-ran.sentinel" ] || { echo "the rewritten script did not reach the line that was there before - $output"; false; }
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+
+  # ...and the half that keeps this from being "the gate runs anything": one
+  # character of the command, with the script left exactly as it was.
+  rm -f "$R/payload.sentinel" "$R/script-ran.sentinel"
+  printf 'coverage: sh .harmonia/cov.sh \n' > "$R/.harmonia/project.yaml"   # a trailing blank: the same bytes
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$R/script-ran.sentinel" ]                  # config-lib strips it, so this is not a different string
+  rm -f "$R/payload.sentinel" "$R/script-ran.sentinel"
+  printf 'coverage: sh .harmonia/cov.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -f "$R/script-ran.sentinel" ]                # an edited command runs nothing at all
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"cannot measure"* ]]
+  [[ "$output" == *".harmonia/project.yaml"* ]]    # names what to read...
+  [[ "$output" == *"/harmonia:trust"* ]]           # ...and the human command that authorises it
+  [[ "$output" != *"trust.sh"* ]]                  # never the script path that clears the refusal
+  [ ! -f "$WS/gate-report.md" ]
+  [ ! -f "$WS/receipts/coverage.json" ]            # a receipt written at refusal time is fresh by construction
+
+  # Re-recording is the remedy the refusal names, so the gate has to run the
+  # edited command once a human has read it.
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$R/script-ran.sentinel" ]
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+}
+
+@test "a report the attested command rewrites on every run does not break the next run" {
+  # The over-refusal side of binding the files a command names, and the reason it
+  # needs its own test: skills/onboard/CERTIFY.md runs the coverage command once,
+  # so by the time consent is recorded the report is already a file the command
+  # names and rewrites. A build that binds every token naming an existing file
+  # passes every reject-side cell of this round and then refuses this repository
+  # on its SECOND gate run - measured, and it also passes the whole of `bats
+  # tests/`. The report is named twice on purpose (bare and as --out=<path>) and a
+  # directory is named as an operand, because a rule broadened to flag values or
+  # to directory operands reds only there.
+  git -C "$R" checkout -q -- app.ts
+  printf 'p1\np2\np3\np4\n' > "$R/calc.py"
+  mkdir -p "$R/.harmonia"
+  cat > "$R/.harmonia/cov.sh" <<'SH'
+#!/bin/sh
+# a coverage run that appends to its own log and stamps the report with its size,
+# so consecutive reports differ by content without asking a clock for it (`date
+# +%s%N` is GNU-only, and two runs inside one second would compare equal).
+mkdir -p "$1"
+echo run >> "$1/seq"
+cat cov.tpl > "$1/cov.xml"
+printf '<!-- %s -->\n' "$(wc -c < "$1/seq")" >> "$1/cov.xml"
+SH
+  chmod +x "$R/.harmonia/cov.sh"
+  cat > "$R/cov.tpl" <<'XML'
+<?xml version="1.0" ?>
+<coverage line-rate="0.5" version="1.9" timestamp="1">
+  <packages><package name="c" line-rate="0.5"><classes>
+    <class name="calc" filename="calc.py" line-rate="0.5"><lines>
+      <line number="2" hits="1"/><line number="4" hits="0"/><line number="5" hits="0"/>
+    </lines></class>
+  </classes></package></packages>
+</coverage>
+XML
+  printf 'coverage: sh .harmonia/cov.sh out --out=out/cov.xml && echo out/cov.xml\n' > "$R/.harmonia/project.yaml"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm pybase
+  PB="$(git -C "$R" rev-parse HEAD)"
+  printf 'p1\nCHANGED2\np3\nCHANGED4\nNEW5\n' > "$R/calc.py"
+
+  # The ordinary post-onboarding state: certification ran the command once, so the
+  # report and its directory exist when consent is recorded.
+  ( cd "$R" && sh .harmonia/cov.sh out )
+  local h0 h1 h2
+  h0="$(sha256sum "$R/out/cov.xml" | awk '{print $1}')"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+  h1="$(sha256sum "$R/out/cov.xml" | awk '{print $1}')"
+  run bash "$GATE" --repo "$R" --base "$PB" --workspace "$WS"
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+  h2="$(sha256sum "$R/out/cov.xml" | awk '{print $1}')"
+  # Both runs executed the command, which is what makes the two assertions above
+  # mean something rather than passing over a gate that never reached the seam.
+  [ "$h0" != "$h1" ]
+  [ "$h1" != "$h2" ]
+}
+
+@test "a coverage value hiding a payload behind a control byte is never recorded and never runs, and a tabbed one is refused with it" {
+  # The printed line is the control three shipped files name, and a repository can
+  # make the string a developer READS differ from the string that EXECUTES:
+  # trust_record prints the value raw and config-lib.sh:17 strips only
+  # surrounding blanks, so an interior CR survives into the print, the digest and
+  # the eval. The shell stops at the `#`; the terminal returns to column zero and
+  # is left showing the benign tail. A value that is never recorded can never be
+  # attested, which is why the refusal belongs at the recorder.
+  printf 'coverage: touch %s/PWNED; echo cov.xml #\rnpx vitest run --coverage && echo cov.xml\n' "$BATS_TEST_TMPDIR" > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -ne 0 ]
+  [ "$(find "$HARMONIA_HOME" -type f 2>/dev/null | wc -l)" -eq 0 ]
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -e "$BATS_TEST_TMPDIR/PWNED" ]
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"cannot measure"* ]]
+  [[ "$output" == *".harmonia/project.yaml"* ]]
+  # TAB LEFT THE BYTE CLASS IN ROUND 5, and this half inverts with it: the cap is
+  # 1024 bytes because that is what a person can read before agreeing, and a byte
+  # worth eight columns makes 1024 bytes into 8192 - 83 wrapped lines, with the
+  # payload scrolled off the top of a 24-line terminal. The end-to-end half is
+  # what this file adds over tests/trust.bats: refused at the recorder, and then
+  # never run by the gate.
+  printf '#!/bin/sh\ntouch TABRAN\n' > "$R/.harmonia/tab.sh"
+  chmod +x "$R/.harmonia/tab.sh"
+  printf 'coverage: sh\t.harmonia/tab.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -ne 0 ] || { echo "a value carrying a TAB was recorded, and 1024 bytes of TAB is 8192 columns"; false; }
+  [ "$(find "$HARMONIA_HOME" -type f 2>/dev/null | wc -l)" -eq 0 ]
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -f "$R/TABRAN" ]
+  [ "$status" -eq 4 ]
+  [[ "$output" == *".harmonia/project.yaml"* ]]
+  # The control, and the reason this is a byte rule rather than a refusal of
+  # whitespace: the same value with a space where the TAB was records and runs.
+  printf 'coverage: sh .harmonia/tab.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$R/TABRAN" ]
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+  # REVERSED FROM ROUND 2, end to end, and it is the specification that moved. The
+  # round-2 rule refused C0 and DEL because those bytes can make the terminal show
+  # a command other than the one that runs, and let every byte >= 0x80 through on
+  # the argument that é and ç are made of them. U+202E is made of them too - it is
+  # the Trojan Source class, CVE-2021-42574, and it reorders the rendered line -
+  # and so are U+0085, U+009B, U+200B and a pasted U+00A0. Round 3 refuses every
+  # byte outside 0x20-0x7e plus TAB, so all of them die on one rule with no list
+  # of codepoints to keep in sync, and a value carrying é is no longer runnable.
+  printf 'coverage: sh .harmonia/tab.sh \303\251\303\247 && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  rm -f "$R/TABRAN"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -ne 0 ]
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -f "$R/TABRAN" ]                             # the value never ran
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"cannot measure"* ]]
+  [[ "$output" == *".harmonia/project.yaml"* ]]
+  local before; before="$(find "$HARMONIA_HOME" -type f 2>/dev/null | wc -l)"
+  printf 'coverage: sh .harmonia/tab.sh \342\200\256 && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -ne 0 ]
+  [ "$(find "$HARMONIA_HOME" -type f 2>/dev/null | wc -l)" -eq "$before" ]   # no record for a value nothing can print honestly
+}
+
+@test "a spelling the grammar cannot attest is refused at the recorder, so the gate never runs the file it names" {
+  # B1's table, end to end. All six record today. Four of them bind nothing a file
+  # could match - `. cov.sh` and `npx vitest --coverage` name no reference at all,
+  # `sh -c '…'` names the token `'sh` and `sh <cov.sh` names `<` - and each was
+  # measured running a rewritten .harmonia/cov.sh under the consent recorded for
+  # the old one, with the coverage: line untouched and nothing for the developer to
+  # re-read. The other two bind the script correctly today, by scanning every token
+  # of the value for an interpreter word: that scan is the predicate this round
+  # retires, and it is the same scan that emitted `/bin/sh` as its own reference
+  # and `'a` for `sh 'a b.sh'`. The answer is not a better scan - it is that a value
+  # the recorder cannot describe honestly is refused while a human is there to read
+  # the refusal, and a value that is never recorded can never be attested. This is
+  # the gate-side half of that: the recorder refuses, and the gate then refuses the
+  # same value for want of a record, running nothing.
+  printf '#!/bin/sh\ntouch %s/PWNED\necho /nonexistent/nope.xml\n' "$BATS_TEST_TMPDIR" > "$R/.harmonia/cov.sh"
+  chmod +x "$R/.harmonia/cov.sh"
+  # ROUND 4's spellings, in the same loop and for the same reason, and ROUND 5's
+  # three new ones at the end: `V+=x/y` is the assignment spelling the old regex
+  # missed, which classified the assignment itself as the program and preloaded a
+  # payload through BASH_ENV in the same shape; `sh cov.sh` is the slash-less
+  # operand a bare interpreter PATH-searches, so what runs is a file the value
+  # does not name; and `/bin/sh -c payload` is `sh -c payload` spelled to dodge a
+  # rule keyed on the bare word. Each is refused at the recorder, and the gate
+  # then runs nothing.
+  #
+  # ONE VALUE LEFT THIS LOOP IN ROUND 5 AND COMES BACK IN ROUND 6, along with
+  # three more, and they are the whole of the change here: `<ext>/launch sh
+  # .harmonia/cov.sh` is an out-of-tree program as the first word, which round 5
+  # admitted on the argument that a word carrying a `/` names a file the reader
+  # can go and look at. What that class bought was a launcher whose LATER words
+  # nothing constrained: `/usr/bin/env PATH=fakebin sh ./cov.sh` recorded and ran
+  # the repository's own `fakebin/sh` end to end, with the value's own words
+  # naming a script that never ran. The class goes, and with it the three
+  # spellings below - a launcher, an interpreter named by its path, and a tool
+  # named by its path - each refused at the recorder, each running nothing.
+  mkdir -p "$BATS_TEST_TMPDIR/ext" "$R/-P" "$R/node_modules/.bin"
+  printf '#!/bin/sh\nexec "$@"\n' > "$BATS_TEST_TMPDIR/ext/launch"
+  chmod +x "$BATS_TEST_TMPDIR/ext/launch"
+  printf '#!/bin/sh\ntouch %s/PWNED\necho /nonexistent/nope.xml\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/ext/cov.sh"
+  chmod +x "$BATS_TEST_TMPDIR/ext/cov.sh"
+  cp "$R/.harmonia/cov.sh" "$R/-P/cov.sh"
+  ln -sfn "$BATS_TEST_TMPDIR/ext/launch" "$R/sh"
+  # The tool is written HERE, above the loop, so that its own refusal is about
+  # the spelling and not about a missing file - and it touches both sentinels, so
+  # the loop can prove it never ran while the control below proves it does run
+  # once a card word is in front of it.
+  printf '#!/bin/sh\ntouch %s/PWNED\ntouch %s/TOOL-RAN\necho /nonexistent/nope.xml\n' \
+    "$BATS_TEST_TMPDIR" "$BATS_TEST_TMPDIR" > "$R/node_modules/.bin/vitest"
+  chmod +x "$R/node_modules/.bin/vitest"
+  local v
+  for v in \
+    'env sh .harmonia/cov.sh && echo cov.xml' \
+    'VAR=1 sh .harmonia/cov.sh && echo cov.xml' \
+    '. .harmonia/cov.sh && echo cov.xml' \
+    "sh -c 'sh .harmonia/cov.sh'" \
+    'sh < .harmonia/cov.sh && echo cov.xml' \
+    'npx vitest --coverage && echo cov.xml' \
+    './sh bash .harmonia/cov.sh && echo cov.xml' \
+    'V=x/y sh .harmonia/cov.sh && echo cov.xml' \
+    'sh +x .harmonia/cov.sh && echo cov.xml' \
+    'sh ../ext/cov.sh && echo cov.xml' \
+    'cd -P && sh ./cov.sh && echo cov.xml' \
+    'V+=x/y sh .harmonia/cov.sh && echo cov.xml' \
+    'sh cov.sh && echo cov.xml' \
+    '/bin/sh -c payload && echo cov.xml' \
+    '/bin/sh .harmonia/cov.sh && echo cov.xml' \
+    './node_modules/.bin/vitest run --coverage' \
+    "$BATS_TEST_TMPDIR/ext/launch sh .harmonia/cov.sh && echo cov.xml" \
+    "$BATS_TEST_TMPDIR/ext/launch PATH=$R/node_modules/.bin sh ./cov.sh && echo cov.xml" \
+    'sh /dev/stdin && echo cov.xml'
+  do
+    rm -rf "$HARMONIA_HOME" "$BATS_TEST_TMPDIR/PWNED" "$WS/gate-report.md" "$WS/receipts/coverage.json"
+    printf 'coverage: %s\n' "$v" > "$R/.harmonia/project.yaml"
+    run bash "$TRUST" record --repo "$R"
+    [ "$status" -ne 0 ] || { echo "[$v]: the recorder attested a value it cannot say what it binds"; false; }
+    [ "$(find "$HARMONIA_HOME" -type f 2>/dev/null | wc -l)" -eq 0 ] || { echo "[$v]: a record landed for a refused value"; false; }
+    run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+    [ ! -e "$BATS_TEST_TMPDIR/PWNED" ] || { echo "[$v]: the gate ran a value nobody could record consent for"; false; }
+    [ "$status" -eq 4 ] || { echo "[$v]: exit $status, not 4 - $output"; false; }
+    [[ "$output" == *"cannot measure"* ]] || { echo "[$v]: not a cannot-measure refusal - $output"; false; }
+    [[ "$output" == *".harmonia/project.yaml"* ]] || { echo "[$v]: does not name the file to read - $output"; false; }
+    [ ! -f "$WS/gate-report.md" ] || { echo "[$v]: wrote a report on a refusal"; false; }
+    [ ! -f "$WS/receipts/coverage.json" ] || { echo "[$v]: wrote a receipt on a refusal"; false; }
+  done
+  # THE CONTROL, RESPELLED IN ROUND 6 AND NOT DELETED, because it is what stops
+  # every cell above being satisfied by a build that refuses every repository on
+  # the machine. It used to be `./node_modules/.bin/vitest run --coverage`, which
+  # is now one of the refusals above - so the control moves to what this round
+  # tells that developer to write instead: the same tool, with the interpreter
+  # that runs it in front. WHICH interpreter is a fact about the file rather than
+  # a free choice, and it is the thing the documents have to say: this shim is
+  # `#!/bin/sh` (the pnpm and yarn shape), an npm-style shim is a `.js` file that
+  # needs `node`, and a native binary - esbuild, swc, biome, turbo - runs under
+  # neither and needs a wrapper. The recorder opens no file, so it cannot tell a
+  # developer which; they read the first line.
+  rm -rf "$HARMONIA_HOME" "$BATS_TEST_TMPDIR/PWNED" "$BATS_TEST_TMPDIR/TOOL-RAN"
+  printf 'coverage: sh ./node_modules/.bin/vitest run --coverage\n' > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ] || { echo "the remedy this round advises for a tool named by its path was itself refused at the recorder: $output"; false; }
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$BATS_TEST_TMPDIR/TOOL-RAN" ] || { echo "the respelled tool did not run at the gate - $output"; false; }
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+  # ...and the second remedy, which is the one for everything that is not a script
+  # in one of the card's six languages: a wrapper of the repository's own, which
+  # is where a launcher, a timeout and a native binary all go now that no value
+  # can spell them.
+  rm -rf "$HARMONIA_HOME" "$BATS_TEST_TMPDIR/WRAPPED"
+  printf '#!/bin/sh\nexec %s/ext/launch %s/ext/cov.sh\n' "$BATS_TEST_TMPDIR" "$BATS_TEST_TMPDIR" > "$R/.harmonia/wrap.sh"
+  chmod +x "$R/.harmonia/wrap.sh"
+  printf 'coverage: sh ./.harmonia/wrap.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ] || { echo "the wrapper remedy was refused at the recorder: $output"; false; }
+  rm -f "$BATS_TEST_TMPDIR/PWNED"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -e "$BATS_TEST_TMPDIR/PWNED" ] || { echo "the wrapper remedy did not reach the gate, so the class the round refuses has no working replacement - $output"; false; }
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+}
+
+@test "a monorepo command that changes directory first runs at the gate, and keeps running when the script it names is rewritten" {
+  # `cd sub && sh ./cov.sh && echo sub/cov.xml` is a working repository and the
+  # ceiling cell that says so. Its `./` is R10's: an interpreter's script operand
+  # carries a `/`, because a slash-less one is PATH-searched and what runs is then
+  # a file the value does not name.
+  #
+  # INVERTED IN ROUND 5 on its last leg. Round 2 declared the `cd` unfollowed and
+  # bound a name that was never there; round 3 followed it and bound sub/cov.sh;
+  # round 5 binds nothing, so what this cell holds is the accept side - a monorepo
+  # keeps running through every edit its own developers make, including to the
+  # script the command names.
+  mkdir -p "$R/sub"
+  printf '#!/bin/sh\ntouch script-ran.sentinel\necho /nonexistent/nope.xml\n' > "$R/sub/cov.sh"
+  chmod +x "$R/sub/cov.sh"
+  printf 'console.log(1)\n' > "$R/sub/src.js"
+  printf 'coverage: cd sub && sh ./cov.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -qm sub
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$R/sub/script-ran.sentinel" ]               # control: the tree as the developer read it runs
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+  # An ordinary edit to ordinary product code beside the script.
+  printf 'console.log(2)\n' > "$R/sub/src.js"
+  rm -f "$R/sub/script-ran.sentinel"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$R/sub/script-ran.sentinel" ]
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+  # And the script the command runs after the cd, which rounds 3 and 4 refused.
+  printf '#!/bin/sh\ntouch %s/PWNED\ntouch script-ran.sentinel\necho /nonexistent/nope.xml\n' "$BATS_TEST_TMPDIR" > "$R/sub/cov.sh"
+  rm -f "$R/sub/script-ran.sentinel"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -e "$BATS_TEST_TMPDIR/PWNED" ] || { echo "rewriting the script a monorepo value names stopped the gate running it - $output"; false; }
+  [ -f "$R/sub/script-ran.sentinel" ] || { echo "the rewritten script did not reach the line that was there before - $output"; false; }
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+  # The string still decides, at this seam too: the same monorepo value with its
+  # cd operand spelled differently is a value nobody agreed to, and nothing runs.
+  rm -f "$BATS_TEST_TMPDIR/PWNED" "$R/sub/script-ran.sentinel"
+  printf 'coverage: cd sub/ && sh ./cov.sh && echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -e "$BATS_TEST_TMPDIR/PWNED" ]
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"cannot measure"* ]]
+  [[ "$output" == *".harmonia/project.yaml"* ]]
+  [[ "$output" == *"/harmonia:trust"* ]]
+  [ ! -f "$WS/gate-report.md" ]
+  # Re-recording is the remedy the refusal names, so it has to work for this shape
+  # too - a monorepo that can never re-consent is a monorepo that is refused.
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -e "$BATS_TEST_TMPDIR/PWNED" ]
+  [[ "$output" != *".harmonia/project.yaml"* ]]
+}
+
+@test "a second spelling of /dev/stdin is refused at both doors, and the bytes on the other side of the pipe never run" {
+  # ROUND 7's BLOCKER, END TO END, because a recorder verdict is not what this is
+  # about: the reproduction that matters is a payload executing at the gate. The
+  # operand rule compares two strings - `/dev/*` and `/proc/*` - and the hazard is
+  # two filesystems, so `//dev/stdin` reaches the same door at a cost of one
+  # character and recorded, attested and ran on the build that shipped the rule.
+  #
+  # No word of this value names what runs: the first part prints a command and the
+  # second executes whatever arrived on its standard input. That is the class
+  # bin/trust.sh says out loud it has closed.
+  printf '#!/bin/sh\necho "touch %s/PWNED-VIA-DEV"\n' "$BATS_TEST_TMPDIR" > "$R/gen.sh"
+  chmod +x "$R/gen.sh"
+  local v='sh ./gen.sh | sh //dev/stdin'
+  # DOOR ONE, the recorder: a value that is never recorded can never be attested.
+  printf 'coverage: %s\n' "$v" > "$R/.harmonia/project.yaml"
+  rm -f "$BATS_TEST_TMPDIR/PWNED-VIA-DEV"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -ne 0 ] || { echo "the recorder attested a second spelling of /dev/stdin, so a value whose words name nothing that runs is one character from being recordable: $output"; false; }
+  [ "$(find "$HARMONIA_HOME" -type f 2>/dev/null | wc -l)" -eq 0 ] || { echo "a record landed for a second spelling of /dev/stdin"; false; }
+  # DOOR TWO, the gate, which re-applies the grammar above the eval - so a record
+  # this recorder did not write must not carry the same value through either. The
+  # record is hand-written at the path the recorder itself chose, taken by
+  # recording a value the grammar does admit and then rewriting that file, so
+  # nothing here pins the store's layout.
+  printf 'coverage: echo cov.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  local rec; rec="$(find "$HARMONIA_HOME" -type f | head -1)"
+  [ -n "$rec" ]
+  printf 'repo: %s\ncoverage-sha256: %s\nrecorded: 2026-08-11T00:00:00Z\n' \
+    "$( cd "$R" && pwd -P )" \
+    "$(printf '%s' "$v" | sha256sum | awk '{print $1}')" \
+    > "$rec"
+  printf 'coverage: %s\n' "$v" > "$R/.harmonia/project.yaml"
+  rm -f "$BATS_TEST_TMPDIR/PWNED-VIA-DEV"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -e "$BATS_TEST_TMPDIR/PWNED-VIA-DEV" ] || { echo "a second spelling of /dev/stdin reached the eval and ran the bytes the first part of the value printed, which no word of that value names - $output"; false; }
+  [ "$status" -eq 4 ] || { echo "exit $status, not 4 - $output"; false; }
+  [[ "$output" == *"cannot measure"* ]]
+  [ ! -f "$WS/gate-report.md" ]
+  # A SECOND SPELLING AT THE SAME SEAM, because the leading `//` is the one a fix
+  # is most likely to reach for and the one the gate's own PATH filter already
+  # normalises: `/./dev/stdin` is untouched by that normalisation and opens the
+  # same door. Measured, both of them run the bytes.
+  local w='sh ./gen.sh | sh /./dev/stdin'
+  printf 'repo: %s\ncoverage-sha256: %s\nrecorded: 2026-08-11T00:00:00Z\n' \
+    "$( cd "$R" && pwd -P )" \
+    "$(printf '%s' "$w" | sha256sum | awk '{print $1}')" \
+    > "$rec"
+  printf 'coverage: %s\n' "$w" > "$R/.harmonia/project.yaml"
+  rm -f "$BATS_TEST_TMPDIR/PWNED-VIA-DEV"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -e "$BATS_TEST_TMPDIR/PWNED-VIA-DEV" ] || { echo "a /./ spelling of /dev/stdin reached the eval and ran the bytes the first part of the value printed - $output"; false; }
+  [ "$status" -eq 4 ] || { echo "exit $status, not 4 for the /./ spelling - $output"; false; }
+  # The control, in the same cell: the pipeline shape itself is not what is being
+  # refused, and a repository that pipes its coverage run into a script it names
+  # still records and still runs.
+  rm -rf "$HARMONIA_HOME"
+  printf '#!/bin/sh\n: > %s/PIPED-RAN\necho /nonexistent/nope.xml\n' "$BATS_TEST_TMPDIR" > "$R/sink.sh"
+  chmod +x "$R/sink.sh"
+  printf 'coverage: sh ./gen.sh | sh ./sink.sh\n' > "$R/.harmonia/project.yaml"
+  rm -f "$BATS_TEST_TMPDIR/PIPED-RAN"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ] || { echo "the rule refused an ordinary pipeline into a script the value names, which is over-refusal rather than the class: $output"; false; }
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ -f "$BATS_TEST_TMPDIR/PIPED-RAN" ] || { echo "an attested pipeline into a script the value names did not run - $output"; false; }
+}
+
+@test "a record the recorder did not write does not let a value the grammar refuses reach the eval" {
+  # THE GRAMMAR HAS ONLY EVER BEEN A RECORD-TIME FILTER, and this is what that
+  # costs at the seam. The gate asks whether a well-formed record carries this
+  # string's digest; it never asks whether the string is one the grammar admits.
+  # So a record this recorder did not write - hand-written, forged, or written by
+  # an earlier round, which the migration deliberately keeps valid - puts an
+  # unfiltered string into `eval`. Every record written while round 5 was live
+  # covers a value round 6 refuses, and the people most likely to hold one are the
+  # people a launcher value was recorded for: without the re-check, the narrowing
+  # reaches new records only.
+  #
+  # The value is `sh ./gen.sh | /bin/sh`, which is bin/trust.sh's own worked
+  # example of "runs bytes no word names" - refused at the door by this build and,
+  # measured, run to completion at this seam. The payload is generated by the
+  # first part and executed by the second, so no word of the value names it.
+  printf '#!/bin/sh\necho "touch %s/PWNED-VIA-PIPE"\n' "$BATS_TEST_TMPDIR" > "$R/gen.sh"
+  chmod +x "$R/gen.sh"
+  local v='sh ./gen.sh | /bin/sh'
+  printf 'coverage: %s\n' "$v" > "$R/.harmonia/project.yaml"
+  # The recorder refuses it, which is the half that already holds - and the store
+  # is left empty, so the record below is the only one there is.
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -ne 0 ]
+  [ "$(find "$HARMONIA_HOME" -type f 2>/dev/null | wc -l)" -eq 0 ]
+  # ...and a record for it, written by hand in the shape the recorder itself
+  # writes, at the path it itself chooses. Nothing here pins the store's layout:
+  # the path is taken by recording a value the grammar does admit and then
+  # rewriting that file.
+  printf 'coverage: echo cov.xml\n' > "$R/.harmonia/project.yaml"
+  run bash "$TRUST" record --repo "$R"
+  [ "$status" -eq 0 ]
+  local rec; rec="$(find "$HARMONIA_HOME" -type f | head -1)"
+  [ -n "$rec" ]
+  printf 'repo: %s\ncoverage-sha256: %s\nrecorded: 2026-08-11T00:00:00Z\n' \
+    "$( cd "$R" && pwd -P )" \
+    "$(printf '%s' "$v" | sha256sum | awk '{print $1}')" \
+    > "$rec"
+  printf 'coverage: %s\n' "$v" > "$R/.harmonia/project.yaml"
+  rm -f "$BATS_TEST_TMPDIR/PWNED-VIA-PIPE"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ ! -e "$BATS_TEST_TMPDIR/PWNED-VIA-PIPE" ] || { echo "a record this recorder could not have written put a value the grammar refuses into the eval, and it ran bytes no word of that value names - $output"; false; }
+  [ "$status" -eq 4 ] || { echo "exit $status, not 4 - $output"; false; }
+  [[ "$output" == *"cannot measure"* ]]
+  [ ! -f "$WS/gate-report.md" ]
+  # The migration this does NOT break, in the same cell: a hand-written record for
+  # a value the grammar still admits attests exactly as before, which is the
+  # promise the round keeps while narrowing the one it does not.
+  printf 'coverage: echo /nonexistent/nope.xml\n' > "$R/.harmonia/project.yaml"
+  printf 'repo: %s\ncoverage-sha256: %s\nrecorded: 2026-08-11T00:00:00Z\n' \
+    "$( cd "$R" && pwd -P )" \
+    "$(printf '%s' 'echo /nonexistent/nope.xml' | sha256sum | awk '{print $1}')" \
+    > "$rec"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [[ "$output" != *".harmonia/project.yaml"* ]] || { echo "the re-check refused a legacy record for a value the grammar still admits, which is the migration this round does not reopen - $output"; false; }
 }

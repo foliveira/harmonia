@@ -35,6 +35,7 @@ done
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../base-ref-lib.sh"
 . "$HERE/config-lib.sh"
+. "$HERE/../trust.sh"
 [ "$SELF" -eq 1 ] && { REPO="$(cd "$HERE/../.." && pwd)"; LANG_FORCE="bash"; }
 REPO="$(cd "$REPO" && pwd)"
 TASK_ID="unknown"; [ -n "$WS" ] && TASK_ID="$(basename "$WS")"
@@ -229,6 +230,21 @@ BRANCH_NOTE=""
 if [ -n "$CODE_FILES" ]; then
   if [ -z "$REPORT" ]; then
     if [ -n "$COV_CMD" ]; then
+      # Consent, not provenance: a tracked `project.yaml` is the legitimate case,
+      # so what is asked is not who put the file in the repository but whether
+      # anyone on THIS machine agreed to this string for this tree. The record
+      # lives outside every repository, is keyed by the physically resolved path
+      # (`pwd -P`, and no answer git gives - a remote URL, a common dir and a
+      # toplevel are each repository-suppliable), and digests the value as
+      # project_config returns it and nothing else - no file the value names is
+      # opened, hashed or listed. No record, an unreadable one, a different
+      # digest, or a string the grammar refuses: refuse above the eval, write
+      # nothing.
+      # It REFUSES rather than emptying COV_CMD, and the difference is measured:
+      # an empty value falls to the `else` at :292 and past the filename
+      # substitution at :299, trading a command the human could have read for one
+      # they cannot see.
+      consent_reason="$(trust_reason "$REPO" "$COV_CMD")" || { echo "gate: cannot measure - $consent_reason"; exit 4; }
       # Project-supplied coverage command: run it FRESH from $REPO each
       # invocation (never a pre-produced report). The command must print ONLY the
       # report path to stdout; this seam captures $(...) stdout, and the gate does
