@@ -4,7 +4,7 @@
 STAGES="ideate discuss plan implement review capture quick"
 RUNNER="flow"   # meta-skill spanning plan->implement->review; not a lifecycle stage
 TOUCHPOINTS="accept abandon reject recall status remember"   # human-touchpoint skills; not lifecycle stages
-SETUP="onboard"   # non-stage setup skill; not a lifecycle stage, not the runner, not a touchpoint
+SETUP="onboard trust"   # non-stage setup skills; not lifecycle stages, not the runner, not touchpoints
 
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -27,7 +27,7 @@ setup() {
   [ -f "$REPO_ROOT/skills/$RUNNER/SKILL.md" ]
   grep -q "^name: $RUNNER$" "$REPO_ROOT/skills/$RUNNER/SKILL.md"
   ! grep -q "^  $RUNNER:" "$REPO_ROOT/core/lifecycle.yaml"
-  # count stays exact: seven stage skills, the runner, the six touchpoints, and the one onboard setup skill, nothing unaccounted
+  # count stays exact: seven stage skills, the runner, the six touchpoints, and the two setup skills, nothing unaccounted
   n_stages="$(echo $STAGES | wc -w | tr -d ' ')"
   n_touchpoints="$(echo $TOUCHPOINTS | wc -w | tr -d ' ')"
   n_setup="$(echo $SETUP | wc -w | tr -d ' ')"
@@ -67,19 +67,31 @@ setup() {
   done
 }
 
-@test "the onboard setup skill exists, is named, and scopes to explicit /harmonia: invocation" {
-  # scope: onboard is a new non-stage setup skill - a skills/onboard/SKILL.md invoked
-  # namespaced as /harmonia:onboard. Like the touchpoints it is NOT a lifecycle stage
-  # (absent from lifecycle.yaml, not held to the stage body rules), so this pins only
-  # the shared frontmatter shape and its non-stage status - the onboard contract
-  # vocabulary is pinned by the coverage/scoper criteria, not here.
+@test "the setup skills exist, are named, and scope to explicit /harmonia: invocation" {
+  # scope: onboard and trust are non-stage setup skills - a skills/<name>/SKILL.md
+  # invoked namespaced as /harmonia:<name>. Like the touchpoints they are NOT lifecycle
+  # stages (absent from lifecycle.yaml, not held to the stage body rules), so this pins
+  # only the shared frontmatter shape and their non-stage status - the onboard and trust
+  # contract vocabularies are pinned by the coverage/trust criteria, not here.
+  # trust is deliberately SETUP and not a seventh touchpoint: README.md:95 states
+  # "Six commands act on a task outside the lifecycle stages", and a touchpoint here
+  # would make a shipped sentence false.
   for s in $SETUP; do
     f="$REPO_ROOT/skills/$s/SKILL.md"
     [ -f "$f" ]
     grep -q "^name: $s$" "$f"
     grep -q "^description: " "$f"
     grep -q "ONLY when explicitly invoked as /harmonia:$s" "$f"
-    ! grep -q "^  $s:" "$REPO_ROOT/core/lifecycle.yaml"   # a setup skill is not a lifecycle stage
+    # RESTORED IN ROUND 5. This was `! grep -q ...`, and bash suppresses errexit
+    # for a command whose status is inverted with `!`, so an absence check in that
+    # form asserts nothing unless it is the LAST statement of the body. It was the
+    # last statement while SETUP held one element; the round that added `trust`
+    # turned it into a loop, and from then on only the final iteration was
+    # guarded - `onboard` could be added to lifecycle.yaml with this test green.
+    # Measured both ways at the time it was found.
+    if grep -q "^  $s:" "$REPO_ROOT/core/lifecycle.yaml"; then
+      echo "$s is a setup skill and lifecycle.yaml lists it as a stage"; false
+    fi
   done
 }
 
@@ -331,6 +343,36 @@ setup() {
   grep -qi mismatch "$f"
   grep -qi 're-accept' "$f"
   grep -q 'Never run accept' "$f"                  # never self-accept (invariant, kept)
+}
+
+@test "the trust skill states that consent covers the string and no file, that a script it names may change, and that a control-byte value is refused" {
+  # INVERTED IN ROUND 5, and the inversion is the point. Until this round the two
+  # greps below REQUIRED this file to say that consent binds the files the command
+  # names; that claim is retired, so a file still making it is now the defect and
+  # the patterns say the opposite. The patterns are the task criterion's own, so a
+  # build that satisfies one satisfies both, and no third phrasing is invented.
+  #
+  # What this proves is that the SUBJECTS are addressed, and not that what the
+  # file says about them is true: a nine-line replacement whose body stated the
+  # negation of all three claims matched every pattern in the round-3 version of
+  # this test and printed ok. That is not a reason for a cleverer regex - a fourth
+  # phrasing is only another string to keep in sync - it is a reason no future
+  # round may read this green as "the prose is still right". Whether it is right
+  # is a reading job, and the review does it by running each sentence.
+  f="$REPO_ROOT/skills/trust/SKILL.md"
+  grep -qEi 'whatever it contains|contents it has when it runs|trusting that script' "$f"
+  grep -qEi 'arrive|later commit|after you' "$f"     # ...including code that arrives after consent
+  grep -qEi 'clone|cloned' "$f"                      # ...and what a repository you clone can change
+  grep -qEi 'control (byte|character)' "$f"          # a value that can lie to the terminal is refused
+  # The absence half, which is what a comment cannot satisfy: the sentences the
+  # retirement makes false, in the `if grep; then …; false; fi` shape, because
+  # `! grep` mid-body asserts nothing under errexit.
+  local claim
+  for claim in 'binds-sha256' 'the files it names' 'and what consent binds' 'listed but not bound'; do
+    if grep -qF "$claim" "$f"; then
+      echo "skills/trust/SKILL.md still claims '$claim', which consent no longer covers"; false
+    fi
+  done
 }
 
 @test "verify-acceptance refuses an unresolvable base and names it" {
