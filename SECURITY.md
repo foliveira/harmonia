@@ -522,5 +522,13 @@ changes in between is not detected.
 ## Reporting a vulnerability
 
 Use GitHub's private vulnerability reporting: the "Report a vulnerability" button
-on this repository's Security tab. Please do not open a public issue for a
-security problem.
+on this repository's Security tab. That is the preferred route - it opens a
+private thread and carries the disclosure tooling with it.
+
+If you cannot use it - no GitHub account, or the button is not there - mail
+fabio.an.oliveira@gmail.com instead, with `harmonia security` in the subject.
+
+Either way, please do not open a public issue for a security problem. A report is
+most useful with the command or delivery that triggers it and what you expected
+to happen instead; this is a personal project, so expect a human-speed reply
+rather than a same-day one.
