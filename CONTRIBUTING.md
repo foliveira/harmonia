@@ -43,13 +43,36 @@ Coverage on changed lines is 100%, a soft block. Exemptions are in-code markers 
 
 ## Cutting a release
 
-Installs are pinned, so a release is three steps and the order matters:
+Installs are pinned to a commit, so a release is four steps and the order matters.
 
-1. Bump `version` in `.claude-plugin/plugin.json` to today's date, `YYYY.MM.DD`, and add the section to `CHANGELOG.md`. Commit. **This commit is the release.**
-2. Tag it with the same string: `git tag -a 2026.08.16 -m 'Release 2026.08.16'`.
-3. Point `.claude-plugin/marketplace.json`'s `source.sha` at that commit and commit *that* separately.
+**1. Say what the release is.** Bump `version` in `.claude-plugin/plugin.json` to today's date as `YYYY.MM.DD`, add the matching section to `CHANGELOG.md`, and commit. **This commit is the release.**
 
-The pin cannot live in the commit it names, so the marketplace entry always trails the release by one commit. That is intended: Claude Code reads the marketplace from the default branch and takes the plugin content from the pinned sha, so what a user installs is step 1's tree and nothing after it.
+```bash
+git commit -am "Release 2026.09.01"
+```
+
+**2. Tag it**, with the same string as the version:
+
+```bash
+git tag -a 2026.09.01 -m "Release 2026.09.01"
+```
+
+**3. Point the marketplace at it.** Take the sha from step 1, set it as `source.sha` in `.claude-plugin/marketplace.json`, and commit that on its own:
+
+```bash
+git rev-parse HEAD          # the sha to paste
+git commit -am "Pin installs to the 2026.09.01 release commit"
+```
+
+**4. Push, including the tag** — until this runs, nothing has been released:
+
+```bash
+git push origin master --follow-tags
+```
+
+Why steps 1 and 3 are separate commits: a commit cannot contain its own sha, so the pin can never live in the commit it names, and the marketplace entry always trails the release by one. That is harmless because the two files are read from different places — `marketplace.json` from the branch tip, so Claude Code finds the newest pin, and the plugin itself from the pinned sha. What a user installs is step 1's tree and nothing after it, step 3 included.
+
+`tests/scaffold.bats` checks the pin's shape, not its value, so it holds across releases without edits.
 
 ## Commits
 
