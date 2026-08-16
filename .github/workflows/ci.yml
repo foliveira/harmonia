@@ -20,13 +20,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The suite exercises the coverage gate for real: it hides kcov to assert
-      # the cannot-measure path, which only means anything when kcov is present
-      # on the happy path. diff-cover is the gate's core.
+      # No kcov. The suite never runs one: it hides kcov to assert the
+      # cannot-measure path and stubs it to assert the happy path
+      # (tests/adapters.bats), and CI does not run the coverage gate itself
+      # (CONTRIBUTING.md). The package is not installable here either - it is in
+      # Ubuntu 22.04 and again in 25.10, but not in the 24.04 that
+      # `ubuntu-latest` resolves to, and one missing name fails the whole
+      # apt-get, taking yamllint and jq down with it.
+      # diff-cover is load-bearing: without it the gate exits cannot-measure and
+      # the receipt fixtures in tests/coverage.bats have nothing to assert on.
       - name: Install the engine toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends kcov yamllint jq
+          sudo apt-get install -y --no-install-recommends yamllint jq
           # pipx, not pip: the runner image is PEP 668 managed, so a plain
           # `pip install --user` fails with externally-managed-environment.
           pipx install diff-cover
@@ -38,7 +44,7 @@ jobs:
 
       - name: Record the toolchain
         run: |
-          for t in bats jq yamllint check-jsonschema kcov diff-cover; do
+          for t in bats jq yamllint check-jsonschema diff-cover; do
             printf '%-18s %s\n' "$t" "$(command -v "$t" || echo MISSING)"
           done
 
