@@ -29,18 +29,19 @@ jobs:
       # apt-get, taking yamllint and jq down with it.
       # diff-cover is load-bearing: without it the gate exits cannot-measure and
       # the receipt fixtures in tests/coverage.bats have nothing to assert on.
+      # bats comes from apt, not npm: the runner's npm prefix is /usr/local and
+      # the runner user cannot write the man tree under it, so `npm install -g
+      # bats` dies with EACCES on /usr/local/share/man/man7. noble carries
+      # bats 1.10 and the suite uses nothing newer.
       - name: Install the engine toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends yamllint jq
+          sudo apt-get install -y --no-install-recommends bats yamllint jq
           # pipx, not pip: the runner image is PEP 668 managed, so a plain
           # `pip install --user` fails with externally-managed-environment.
           pipx install diff-cover
           pipx install check-jsonschema
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install bats
-        run: npm install -g bats
 
       - name: Record the toolchain
         run: |
