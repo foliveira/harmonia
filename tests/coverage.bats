@@ -2278,3 +2278,47 @@ FAKEEOF
   leaked="$(ls -A "$TDIR")"
   [ -z "$leaked" ] || { echo "the go adapter's output directory outlived the gate run: $leaked"; false; }
 }
+
+@test "the gate measures .mjs and .cjs as JavaScript, in the classifier and in the adapter fallback" {
+  # Sibling of the recall table in bin/memory/store-lib.sh. Closing one extension
+  # table and leaving another open is this project's own recorded failure, and the
+  # gate holds two of them: lang_of, which decides whether a changed file is
+  # measurable at all, and the adapter fallback at :345, which decides what
+  # measures it. A .mjs that passes the first and misses the second resolves to an
+  # empty language and the gate runs bin/coverage/.sh - cannot-measure again, for a
+  # new reason. Both are pinned here, and each half fails on its own table.
+  #
+  # Driven through the gate's real entry rather than by sourcing it: gate.sh runs
+  # top to bottom with no BASH_SOURCE guard, so `. gate.sh` runs the whole gate,
+  # and under this repository's own coverage command that re-enters this suite
+  # under kcov and never terminates.
+  git -C "$R" checkout -q -- app.ts
+  printf 'a\nb\nc\n' > "$R/mod.mjs"
+  cat > "$R/mjs-cov.xml" <<XML
+<?xml version="1.0" ?>
+<coverage lines-valid="3" lines-covered="2" line-rate="0.66" branch-rate="1.0" version="1.9" timestamp="1">
+  <sources><source>$R/</source></sources>
+  <packages><package name="mod" line-rate="0.66" branch-rate="1.0">
+    <classes><class name="mod" filename="mod.mjs" line-rate="0.66" branch-rate="1.0">
+      <lines><line number="1" hits="1"/><line number="2" hits="1"/><line number="3" hits="0"/></lines>
+    </class></classes>
+  </package></packages>
+</coverage>
+XML
+
+  # The classifier: a report is supplied, so the gate measures the file itself and
+  # names the uncovered line. An unsupported .mjs never reaches diff-cover at all.
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS" --report "$R/mjs-cov.xml"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"mod.mjs:3"* ]]
+
+  # The adapter fallback: no report, so the gate has to name an adapter. The
+  # changed set sorts legacy.cjs first, so .cjs is what drives the lookup, and the
+  # only reason left to be unable to measure is the fixture's missing toolchain.
+  rm -f "$R/mjs-cov.xml"
+  printf 'module.exports = {}\n' > "$R/legacy.cjs"
+  run bash "$GATE" --repo "$R" --base "$BASE" --workspace "$WS"
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"adapter for 'ts'"* ]]
+  [[ "$output" != *"unsupported language"* ]]
+}

@@ -171,7 +171,7 @@ changed="$(printf '%s\n%s\n' "$tracked_changed" "$untracked" | sed '/^$/d' | sor
 
 lang_of() {
   case "${1##*.}" in
-    ts|tsx|js|jsx) echo ts ;;
+    ts|tsx|js|jsx|mjs|cjs) echo ts ;;
     go)            echo go ;;
     sh)            echo bash ;;
     bats)          echo skip ;;  # test code is exercised by definition; the gate measures product code
@@ -342,7 +342,7 @@ if [ -n "$CODE_FILES" ]; then
       # COV_CMD-widened file cannot - widening needs COV_CMD non-empty, which routes
       # to the command branch above.
       lang="$LANG_FORCE"
-      [ -z "$lang" ] && lang="$(echo "$CODE_FILES" | head -1 | xargs -I{} bash -c 'f="{}"; case "${f##*.}" in ts|tsx|js|jsx) echo ts;; go) echo go;; sh|bats) echo bash;; esac')"
+      [ -z "$lang" ] && lang="$(echo "$CODE_FILES" | head -1 | xargs -I{} bash -c 'f="{}"; case "${f##*.}" in ts|tsx|js|jsx|mjs|cjs) echo ts;; go) echo go;; sh|bats) echo bash;; esac')"
       # An adapter prints a path INSIDE its output directory, so it cannot delete
       # that directory on the way out - the caller owns the lifetime, and here
       # the caller is this gate. Left to the adapters it leaked one directory per

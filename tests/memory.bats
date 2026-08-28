@@ -154,3 +154,27 @@ cap() { # cap <title> <tier> <tags> [--client] <<< body
   [[ "$output" == *"Good go entry"* ]]
   [[ "$output" != *"Wild entry"* ]]
 }
+
+@test "every JavaScript module extension resolves to javascript, .mjs and .cjs included" {
+  # A repo whose only source files are ES and CommonJS modules. Before .mjs and .cjs
+  # were mapped, a repo like this resolved to no language at all and recall filtered
+  # every javascript-tagged entry out of it - the failure is silent, because recall
+  # fails open and simply returns a shorter list.
+  MJSREPO="$BATS_TEST_TMPDIR/mjsrepo"
+  mkdir -p "$MJSREPO"
+  git -C "$MJSREPO" init -q
+  echo 'export const a = 1' > "$MJSREPO/mod.mjs"
+  echo 'module.exports = {}'  > "$MJSREPO/legacy.cjs"
+  git -C "$MJSREPO" add -A && git -C "$MJSREPO" -c user.email=t@t -c user.name=t commit -qm x
+
+  . "$REPO_ROOT/bin/memory/store-lib.sh"
+  run repo_langs "$MJSREPO"
+  [ "$status" -eq 0 ]
+  [ "$output" = "javascript" ]
+
+  # and the round trip a reader depends on: a javascript-tagged entry reaches it.
+  echo 'hold the seam' | bash "$CAPTURE" --title "An mjs lesson" --tier global --tags "javascript,testing" --repo "$MJSREPO"
+  run bash "$RECALL" --repo "$MJSREPO"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"An mjs lesson"* ]]
+}

@@ -24,7 +24,7 @@ repo_id() {
 repo_langs_awk() {
   echo '/^go$/        {print "go"}'
   echo '/^ts$|^tsx$/  {print "typescript"}'
-  echo '/^js$|^jsx$/  {print "javascript"}'
+  echo '/^js$|^jsx$|^mjs$|^cjs$/  {print "javascript"}'
   echo '/^sh$|^bats$/ {print "bash"}'
   echo '/^py$/        {print "python"}'
   echo '/^rb$/        {print "ruby"}'
