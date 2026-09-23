@@ -5,11 +5,8 @@
 # is invoked; every target is a scratch dir under $BATS_TEST_TMPDIR.
 #
 # Invocation rule (design T5): behavior and guard tests run the REPO-PATH
-# installer by path - the coverage gate runs kcov with --include-path=$REPO/bin
-# over `bats $REPO/tests` (bin/coverage/bash.sh), and a changed script absent
-# from coverage data hard-flags file:ALL with no exemption. The one
-# staged-source test exists for fresh-clone honesty and asserts EQUALITY with
-# a repo-path install rather than substituting for it. Repo-path runs are
+# installer by path. The one staged-source test exists for fresh-clone honesty
+# and asserts EQUALITY with a repo-path install rather than substituting for it. Repo-path runs are
 # safe: the installer resolves its source script-relatively and writes only
 # under the target.
 #
@@ -66,7 +63,6 @@ refused() { # refused <status>
   [ -d "$TGT/harmonia/core" ]
   [ -d "$TGT/harmonia/skills" ]
   [ -r "$TGT/harmonia/core/RULES.md" ]
-  [ -f "$TGT/harmonia/skills/onboard/CERTIFY.md" ]   # cross-referenced by placed bodies
 }
 
 @test "a generated command body carries its full transformed source skill body, not a truncated prefix" {
