@@ -4,7 +4,7 @@
 # that receipts and the acceptance marker share (KTD7), and of the
 # containment predicate every workspace write and the receipt audit ask
 # before they touch a path (FU-16). Sourced by bin/workspace.sh,
-# bin/check-criteria.sh, and bin/coverage/gate.sh; never executed directly.
+# bin/check-criteria.sh, and bin/verify-receipts.sh; never executed directly.
 set -u
 
 # The workspace base-ref file stores "ref: <sha>"; this parser owns that
@@ -24,8 +24,8 @@ base_resolves() {
   git -C "$1" rev-parse --verify --quiet "$2^{commit}" >/dev/null
 }
 
-# The one diff-digest formula: gate receipts, check-criteria receipts,
-# receipt verification, and the acceptance marker all hash these bytes.
+# The one diff-digest formula: check-criteria receipts, receipt verification,
+# and the acceptance marker all hash these bytes.
 #
 # The base is verified HERE rather than only at the call sites, because this is
 # the sink: `git diff --output=<path>` writes that path, and a repository that
@@ -33,8 +33,8 @@ base_resolves() {
 # function through shape mode - which executes nothing, is deliberately not
 # provenance-guarded, and runs at every implement round. Measured from a clone:
 # a file outside the repository truncated at exit 0 under `check-criteria: OK`,
-# with no symlink and no local write access. Four of the five call sites already
-# gated and lose nothing; bin/check-criteria.sh was the one that did not.
+# with no symlink and no local write access. The other call sites already gated
+# and lose nothing; bin/check-criteria.sh was the one that did not.
 #
 # An unresolvable base yields the empty-diff digest instead of an error because
 # that is byte-identical to what this has always returned for the shipped shape
@@ -75,7 +75,7 @@ ws_contained() {   # <ws> [<rel-under-ws>] -> 0 inside, 1 refuse
   # leading slash - which the single-component test on the next line refuses on
   # its own. A shape test would be a strict subset of it and could not be reached
   # by any constructible path. The single-component test is load-bearing and is
-  # pinned by coverage.bats's `nested-task-path` cell.
+  # pinned by receipts.bats's `nested-task-path` cell.
   wsid="${ws_real##*/.harmonia/tasks/}"
   case "$wsid" in */*|"") return 1 ;; esac
   root="$(cd "$ws/../../.." 2>/dev/null && pwd -P)" || return 1

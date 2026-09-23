@@ -148,7 +148,7 @@ EOF
 # points the run at the fixture repo ($PROJ, a throwaway git repo under
 # BATS_TEST_TMPDIR), never at this repo, so no fixture criterion can modify a
 # tracked file or leave an untracked file at this repo's root - the invariant the
-# pinned coverage -> criteria-run -> verify-receipts order depends on. No fixture
+# pinned criteria-run -> verify-receipts order depends on. No fixture
 # criterion runs `bats`: a nested run inherits BATS_*, and the criteria run
 # itself executes under `bats tests/` at review. Each test names the wrong
 # implementation it must reject.
@@ -283,7 +283,7 @@ EOF
 }
 
 @test "run mode writes its own receipt under the criteria-run gate name" {
-  # Rejects reusing the shape gate's receipt: bin/coverage/gate.sh:82 waives
+  # Rejects reusing the shape gate's receipt: bin/verify-receipts.sh waives
   # freshness for the name `check-criteria` only, so a code-dependent run-mode
   # result travelling under that name would take the status-waived path AND
   # clobber the implement-stage receipt.
@@ -308,9 +308,8 @@ EOF
 
 @test "run mode receipts a failing run, recording status fail" {
   # Rejects exiting before the receipt is written. The receipt proves the gate ran
-  # (KTD7); gate.sh:86-90 checks only the digest for a non-check-criteria receipt,
-  # so a `status: fail` receipt still passes the audit and the executor's exit
-  # code is what blocks.
+  # (KTD7); bin/verify-receipts.sh refuses a criteria-run receipt reporting
+  # `fail`, and the executor's exit code is what blocks the run itself.
   cat > "$WS/scope.md" <<'EOF'
 ## Success Criteria
 - run: false
@@ -342,7 +341,7 @@ EOF
 
 @test "run mode reports cannot-check when there is no scope declaration" {
   # Rejects collapsing cannot-check into failure. Tri-state, per the convention
-  # bin/check-criteria.sh:5-6 and bin/coverage/gate.sh:11-12 already keep. This is
+  # bin/check-criteria.sh:5-6 already keeps. This is
   # also the quick lane's answer: that lane pins no scope.md.
   [ ! -f "$WS/scope.md" ]
   run bash "$CHECK" --run --workspace "$WS" --repo "$PROJ"
@@ -382,9 +381,9 @@ EOF
 }
 
 @test "the quick lane's gates list does not name the criteria-run gate" {
-  # The two `gates: [coverage, receipts]` lines in core/lifecycle.yaml are
-  # byte-identical (review at :102, quick at :142), so a global replace that
-  # widens the review stage silently widens the quick lane too - a named non-goal:
+  # The review and quick stages in core/lifecycle.yaml each carry a gates line,
+  # so a global replace that widens the review stage can silently widen the
+  # quick lane too - a named non-goal:
   # quick declares `artifacts.in: []`, has no scope.md, and so has no criteria set
   # to run. Extract the quick stage's OWN gates line and require it non-empty
   # first, so a renamed stage cannot satisfy this vacuously. Lives here rather
@@ -402,13 +401,13 @@ EOF
 # above: every invocation passes --repo "$PROJ", and no fixture criterion invokes
 # the run mode, so nothing recurses.
 
-@test "run mode passes a --verify-receipts criterion on the round after its own previous run" {
-  # B1. `- run: bash bin/coverage/gate.sh --verify-receipts ...` is the shape
+@test "run mode passes a receipt-audit criterion on the round after its own previous run" {
+  # B1. `- run: bash bin/verify-receipts.sh ...` is the shape
   # every prior task in this repo carries, and criterion 14 of this task is one,
   # so the gate audits its own receipts directory from INSIDE the run. Rejects
   # writing criteria-run.json only after the criteria loop: the previous round's
   # receipt is then still on disk carrying the previous round's digest, and
-  # bin/coverage/gate.sh:87-90 finds it stale against a tree that changed since -
+  # bin/verify-receipts.sh finds it stale against a tree that changed since -
   # so the criterion fails on every round after the first, whatever the work was,
   # and the gate is hard by design. Round 1 is asserted too, because it is what
   # makes the round-2 state real: the prior receipt here is written by the gate
@@ -424,31 +423,24 @@ EOF
   mkdir -p "$WS/receipts"
   cat > "$WS/scope.md" <<EOF
 ## Success Criteria
-- run: bash $REPO_ROOT/bin/coverage/gate.sh --verify-receipts --workspace $WS --repo $PROJ
+- run: bash $REPO_ROOT/bin/verify-receipts.sh --workspace $WS --repo $PROJ
 EOF
 
-  # Round 1: a tracked change, plus the coverage receipt a review round writes
-  # before the criteria run - the order skills/review/SKILL.md pins.
+  # Round 1: a tracked change.
   echo 'round one' >> "$PROJ/main.go"
   d1="$(git -C "$PROJ" diff "$base" | sha256sum | awk '{print $1}')"
-  cat > "$WS/receipts/coverage.json" <<EOF
-{ "gate": "coverage", "task_id": "2026-07-02-fixture", "timestamp": "2026-07-28T00:00:00Z", "diff_digest": "$d1", "status": "pass" }
-EOF
   run bash "$CHECK" --run --workspace "$WS" --repo "$PROJ"
   [ "$status" -eq 0 ]
   [ "$(jq -r .diff_digest "$WS/receipts/criteria-run.json")" = "$d1" ]   # a real prior-round receipt about the prior round's tree
 
-  # Round 2: implement changed a tracked file since, so this round's coverage gate
-  # measured a tree the round-1 receipt no longer describes.
+  # Round 2: implement changed a tracked file since, so the round-1 receipt no
+  # longer describes the tree.
   echo 'round two' >> "$PROJ/main.go"
   d2="$(git -C "$PROJ" diff "$base" | sha256sum | awk '{print $1}')"
   [ "$d1" != "$d2" ]        # the fixture really is a since-changed tree, so round 2 cannot pass vacuously
-  cat > "$WS/receipts/coverage.json" <<EOF
-{ "gate": "coverage", "task_id": "2026-07-02-fixture", "timestamp": "2026-07-29T00:00:00Z", "diff_digest": "$d2", "status": "pass" }
-EOF
   run bash "$CHECK" --run --workspace "$WS" --repo "$PROJ"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"PASS  bash $REPO_ROOT/bin/coverage/gate.sh --verify-receipts"* ]]   # the audit is what passed, not some other criterion
+  [[ "$output" == *"PASS  bash $REPO_ROOT/bin/verify-receipts.sh"* ]]   # the audit is what passed, not some other criterion
   [ "$(jq -r .diff_digest "$WS/receipts/criteria-run.json")" = "$d2" ]   # and the round still leaves a receipt about the tree it ran on
   [ "$(jq -r .status "$WS/receipts/criteria-run.json")" = "pass" ]
 }
@@ -538,7 +530,7 @@ EOF
   #   - a guard that refuses and THEN receipts -> the receipt assertion, which
   #     requires the receipts directory itself to be absent, so the pre-loop
   #     write cannot land either; per S-1 a `running` receipt verifies clean at
-  #     gate.sh:86-90, so leaving one behind is not harmless;
+  #     bin/verify-receipts.sh, so leaving one behind is not harmless;
   #   - refusing every invocation -> the control, which demands exit 1 with the
   #     witness fired and the receipt written;
   #   - a guard that narrows what --repo ACCEPTS -> the second control, an
@@ -703,16 +695,11 @@ EOF
 # must fail the standalone one afterwards. Both halves in one test because they
 # are the same receipt read at two moments: the pre-loop write says `running`,
 # which an audit invoked from inside the run it certifies has to accept, and the
-# post-loop rewrite says `fail`, which review's standalone --verify-receipts step
+# post-loop rewrite says `fail`, which review's standalone verify-receipts step
 # must refuse. Requiring `status: pass` breaks the first half - the round's own
 # audit criterion then fails from round 1 onwards, whatever the work was.
 # Leaving `fail` unread leaves the second half certifying a round that ran and
 # lost, which is what the base gate does.
-#
-# The hand-written coverage.json is the receipt review's coverage gate writes
-# before the criteria run (the order skills/review/SKILL.md:11-13 pins); without
-# it the audit refuses for the no-coverage-receipt reason instead, and neither
-# half of this test would be about FU-10.
 #
 # Every fixture path interpolated into the criterion is QUOTED there, the hygiene
 # rule this file states at :511: the criteria run through `bash -c`, so with an
@@ -724,21 +711,18 @@ EOF
   mkdir -p "$WS/receipts"
   cat > "$WS/scope.md" <<EOF
 ## Success Criteria
-- run: bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --workspace "$WS" --repo "$PROJ"
+- run: bash "$REPO_ROOT/bin/verify-receipts.sh" --workspace "$WS" --repo "$PROJ"
 - run: false
 EOF
   echo 'a change the round measured' >> "$PROJ/main.go"
   d="$(git -C "$PROJ" diff "$base" | sha256sum | awk '{print $1}')"
-  cat > "$WS/receipts/coverage.json" <<EOF
-{ "gate": "coverage", "task_id": "2026-07-02-fixture", "timestamp": "2026-07-31T00:00:00Z", "diff_digest": "$d", "status": "pass" }
-EOF
   run bash "$CHECK" --run --workspace "$WS" --repo "$PROJ"
   [ "$status" -eq 1 ]                                    # `false` failed the round, as it must
-  [[ "$output" == *"PASS  bash \"$REPO_ROOT/bin/coverage/gate.sh\" --verify-receipts"* ]]   # ...and the audit inside it passed
+  [[ "$output" == *"PASS  bash \"$REPO_ROOT/bin/verify-receipts.sh\" --workspace"* ]]   # ...and the audit inside it passed
   [ "$(jq -r .status "$WS/receipts/criteria-run.json")" = "fail" ]
   [ "$(jq -r .diff_digest "$WS/receipts/criteria-run.json")" = "$d" ]   # fresh, so the refusal below is about the status
 
-  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --workspace "$WS" --repo "$PROJ"
+  run bash "$REPO_ROOT/bin/verify-receipts.sh" --workspace "$WS" --repo "$PROJ"
   [ "$status" -ne 0 ]
   [[ "$output" == *"criteria-run"* ]]
   [[ "$output" != *"receipts verified"* ]]
@@ -1331,13 +1315,14 @@ EOS
   local id; id="$(bash "$REPO_ROOT/bin/workspace.sh" mint --repo "$L" --slug au)"
   local ws="$L/.harmonia/tasks/$id"
   printf 'notes\n' > "$L/notes.md"
-  bash "$REPO_ROOT/bin/coverage/gate.sh" --repo "$L" --workspace "$ws" >/dev/null 2>&1
-  [ -s "$ws/receipts/coverage.json" ]
-  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --repo "$L" --workspace "$ws"
+  printf '## Success Criteria\n- run: true\n' > "$ws/scope.md"
+  bash "$CHECK" --run --workspace "$ws" --repo "$L" >/dev/null 2>&1 </dev/null
+  [ -s "$ws/receipts/criteria-run.json" ]
+  run bash "$REPO_ROOT/bin/verify-receipts.sh" --repo "$L" --workspace "$ws"
   [ "$status" -eq 0 ]                       # honest baseline
 
   printf 'GARBAGE' > "$L/.git/index"
-  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --repo "$L" --workspace "$ws"
+  run bash "$REPO_ROOT/bin/verify-receipts.sh" --repo "$L" --workspace "$ws"
   echo "corrupt index: status=$status"
   echo "$output"
   [ "$status" -ne 0 ]

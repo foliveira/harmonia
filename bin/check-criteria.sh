@@ -113,7 +113,7 @@ NTOTAL=0
 NFAILED=0
 
 # One writer, two gate names: the run mode's result is code-dependent and must
-# not travel under the freshness-waived `check-criteria` name (the gate-name waiver in bin/coverage/gate.sh)
+# not travel under the freshness-waived `check-criteria` name (the gate-name waiver in bin/verify-receipts.sh)
 # or clobber the implement-stage shape receipt.
 RECEIPT="check-criteria"
 [ "$RUN" -eq 1 ] && RECEIPT="criteria-run"
@@ -155,7 +155,7 @@ if [ "$RUN" -eq 1 ] && [ -n "$CRITERIA" ]; then
   # The receipt goes down BEFORE the loop, carrying the pre-run digest every gate
   # of this round hashes and a status no reader can take for a pass. A shipped
   # criterion audits this very directory from inside the run
-  # (`gate.sh --verify-receipts`, the shape every task here carries): without this
+  # (`verify-receipts.sh`, the shape every task here carries): without this
   # write, what it finds is the PREVIOUS round's receipt, stale against a tree that
   # changed since, so that criterion could not pass on any round after the first
   # however good the work was. Rewritten with the verdict once the loop ends; a run
