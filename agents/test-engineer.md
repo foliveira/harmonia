@@ -1,6 +1,6 @@
 ---
 name: test-engineer
-description: Writes tests first: failing tests for behavior, covering tests at coverage gaps.
+description: Writes tests first: failing tests for behavior, covering tests for changed code no test exercises.
 model: inherit
 tools: Read, Write, Edit, Bash
 ---

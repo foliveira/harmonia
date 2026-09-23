@@ -125,7 +125,7 @@ has() { # has <role> <tool> -> 0 when the role declares EXACTLY that name (not a
 }
 
 @test "every charter consumes entry resolves to a produces, a lifecycle artifact, or a builtin" {
-  allowed=" task-ask base-ref diff receipts audit-log "
+  allowed=" task-ask base-ref diff receipts "
   for r in $ROLES; do
     p="$(fm "$REPO_ROOT/core/charters/$r.md" produces | tr -d '[]' | tr ',' ' ')"
     allowed="$allowed$p "

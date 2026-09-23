@@ -74,7 +74,7 @@ pick() { # resolve --task override or the single incomplete workspace
 # statement after a command resolves its id, before any read and before any
 # write. That is what makes verify-test-hashes refuse a redirected manifest
 # rather than read it, and it is one line per command instead of one per sink.
-# The rm -f pairs (accept's `rejected`, reject's `accepted`, clear-span's six)
+# The rm -f pairs (accept's `rejected`, reject's `accepted`, clear-span's five)
 # get no call of their own: once this passes, the workspace is contained, so the
 # worst those can find is a symlink inside it - and rm -f unlinks the link.
 ws_guard() {   # <rel-under-the-workspace, empty for the task directory itself>
@@ -122,7 +122,7 @@ case "$CMD" in
     ws_guard
     D="$TASKS/$ID"
     cleared=""
-    for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations; do
+    for f in design.md boundary.md diff-summary.md verdict.md violations; do
       if [ -f "$D/$f" ]; then
         rm -f "$D/$f"
         cleared="$cleared $f"
@@ -258,7 +258,7 @@ case "$CMD" in
       {
         echo "test-immutability VIOLATION at $(date -u +%Y-%m-%dT%H:%M:%SZ):"
         echo "$out"
-      } >> "$TASKS/$ID/violations"  # harmonia:exempt kcov cannot attribute brace-group redirect closers; the violation record is asserted by tests
+      } >> "$TASKS/$ID/violations"
       echo "workspace: test-immutability violation - the implementer may not edit tests (KTD12); recorded in the workspace for the review lead" >&2
       exit 1
     fi

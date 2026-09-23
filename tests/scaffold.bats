@@ -43,11 +43,10 @@ setup() {
   grep -q "Copyright (c) 2026 Fabio Oliveira" "$REPO_ROOT/LICENSE"
 }
 
-@test "task workspaces are gitignored; the exemptions audit log is not" {
+@test "task workspaces are gitignored" {
   mkdir -p "$REPO_ROOT/.harmonia/tasks/fixture"
   touch "$REPO_ROOT/.harmonia/tasks/fixture/file"
   git -C "$REPO_ROOT" check-ignore -q ".harmonia/tasks/fixture/file"
-  ! git -C "$REPO_ROOT" check-ignore -q ".harmonia/coverage-exemptions.yaml"
   rm -rf "$REPO_ROOT/.harmonia/tasks/fixture"
 }
 

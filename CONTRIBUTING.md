@@ -5,20 +5,19 @@ Harmonia is a personal SDLC that I use on my own work, so it carries strong opin
 ## Toolchain
 
 ```
-bats  jq  yamllint  check-jsonschema  kcov  diff-cover
+bats  jq  yamllint  check-jsonschema
 ```
 
-`gocover-cobertura` is needed only if you touch the Go coverage adapter. The engine itself is bash and YAML — there is nothing to build.
+The engine itself is bash and YAML — there is nothing to build.
 
 ## The checks
 
 ```bash
 bats tests/                                  # the whole suite
 bin/validate-core.sh                         # lifecycle YAML, schema conformance, lens resolution
-bin/coverage/gate.sh --self --base <ref>     # the coverage gate, dogfooded on this repo
 ```
 
-CI runs the first two on every push and pull request. It deliberately does **not** run the coverage gate yet: the adapters leak a temp directory per run and a kcov killed mid-run currently reports `gate: OK` rather than failing closed, so a green check would not mean what it appears to mean. Both defects are written up in `docs/learnings/`. Run the gate locally on anything touching `bin/`.
+CI runs both on every push and pull request.
 
 ## How change happens here
 
@@ -39,7 +38,7 @@ Two things the review checks specifically:
 - **No test is weakened.** Assertions are not deleted, loosened or retitled to make a build pass. If a change genuinely retires a behaviour, move that test to the other side so a build still doing the old thing goes red — do not delete it.
 - **Cover both directions.** A guard needs cells proving it refuses what it should *and* cells proving it still accepts legitimate input. Reject-side tests alone have shipped real over-refusals here.
 
-Coverage on changed lines is 100%, a soft block. Exemptions are in-code markers carrying a justification (`# harmonia:exempt <why>`) and they are read in review — restructuring so a line is genuinely exercised is almost always the better answer.
+Aim for every changed line and branch to be exercised by a test that asserts behavior. Nothing measures it; the review reads the diff against the tests.
 
 ## Cutting a release
 

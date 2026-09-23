@@ -44,7 +44,7 @@ swap_engine_home() { # swap_engine_home <engine_home> <staged_tmp>
   # unmarked directory is now at the engine home, refuse and leave it intact -
   # never remove it.
   if [ -e "$eh" ] && [ ! -f "$eh/core/RULES.md" ]; then
-    die 1 "refusing: $eh is no longer a harmonia install (no core/RULES.md); left intact, not removed"  # harmonia:exempt kcov does not attribute a die reached only through the sourceable seam's sourced-then-called path; the FU-3 injection test asserts this refusal deterministically (mutants that drop or reorder the check both die)
+    die 1 "refusing: $eh is no longer a harmonia install (no core/RULES.md); left intact, not removed"
   fi
   rm -rf -- "$eh"          # unconditional; rm -rf is silent on a missing path
   mv -- "$staged" "$eh"
@@ -170,7 +170,7 @@ for d in "$engine_home"/skills/*/; do
   {
     printf -- '---\n%s\n---\n%s\n' "$desc" "$MARKER"
     awk 'b{print; next} /^---$/{if(++n==2) b=1}' "$skill"
-  } > "$cmd_dir/harmonia-$name.md"  # harmonia:exempt kcov cannot attribute this brace-group redirect closer; the body it writes is pinned by the body-completeness test
+  } > "$cmd_dir/harmonia-$name.md"
   count=$((count + 1))
 done
 

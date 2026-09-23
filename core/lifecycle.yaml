@@ -48,14 +48,15 @@ stages:
     gates: []
 
   implement:
-    purpose: Build the design against the coverage gate, tests leading.
+    purpose: Build the design, tests leading.
     agents: [test-engineer, implementer]
     loop:
       type: red-green
-      # Behavior-driven rounds are red-first; coverage-gap rounds are
-      # cover-first (a green-on-arrival test completes the round). On cap the
-      # loop exits incomplete and records the disagreement for the review
-      # lead to arbitrate - never escaping via an exemption marker (KTD12).
+      # Behavior-driven rounds are red-first; gap rounds, where the test
+      # engineer finds changed code no test exercises, are cover-first (a
+      # green-on-arrival test completes the round). Coverage is the test
+      # engineer's aim, never a gate. On cap the loop exits incomplete and
+      # records the disagreement for the review lead to arbitrate (KTD12).
       max_rounds: 6
     artifacts:
       in:
@@ -97,9 +98,7 @@ stages:
       out:
         - name: verdict
           location: "workspace:verdict.md"
-        - name: gate-report
-          location: "workspace:gate-report.md"
-    gates: [coverage, criteria-run, receipts]
+    gates: [criteria-run, receipts]
 
   capture:
     purpose: Record learnings, then ship structured commits.
@@ -133,10 +132,8 @@ stages:
     artifacts:
       in: []
       out:
-        - name: gate-report
-          location: "workspace:gate-report.md"
         - name: verdict
           location: "workspace:verdict.md"
         - name: completion
           location: "workspace:done"
-    gates: [coverage, receipts]
+    gates: []
