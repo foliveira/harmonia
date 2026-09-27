@@ -24,12 +24,15 @@ seed_learning() {
     --title "Go pitfall fixture" --tier global --tags "go" --repo "$PROJ" >/dev/null
 }
 
-@test "injection carries all four rule names and a matching learning summary" {
+@test "injection carries every rule name and a matching learning summary" {
   seed_learning
   run bash -c "cd '$PROJ' && bash '$INJECT'"
   [ "$status" -eq 0 ]
-  for rule in "Think Before Coding" "Simplicity First" "Surgical Changes" "Goal-Driven Execution"; do
-    [[ "$output" == *"$rule"* ]]
+  # Matched as a digest entry, not a bare substring: "Measure" alone could
+  # pass on any line that happens to use the word.
+  for rule in "Think Before Coding" "Simplicity First" "Surgical Changes" "Goal-Driven Execution" \
+              "Prove the Bottleneck" "Measure" "Don't Get Fancy" "Use Simple Algorithms" "Data Dominates"; do
+    [[ "$output" == *"- $rule - "* ]]
   done
   [[ "$output" == *"Go pitfall fixture"* ]]
 }
