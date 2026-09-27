@@ -3,8 +3,8 @@
 # ("ref: <sha>", written by workspace.sh mint), of the diff-digest formula
 # that receipts and the acceptance marker share (KTD7), and of the
 # containment predicate every workspace write and the receipt audit ask
-# before they touch a path (FU-16). Sourced by bin/workspace.sh,
-# bin/check-criteria.sh, and bin/coverage/gate.sh; never executed directly.
+# before they touch a path. Sourced by bin/workspace.sh,
+# bin/check-criteria.sh, and bin/verify-receipts.sh; never executed directly.
 set -u
 
 # The workspace base-ref file stores "ref: <sha>"; this parser owns that
@@ -13,7 +13,7 @@ parse_base_ref() { local v="$1"; printf '%s' "${v#ref: }"; }
 
 # True when <ref> resolves to a commit in <repo>. ^{commit} forces object
 # existence - bare rev-parse --verify accepts any well-formed 40-hex sha
-# unseen (recorded in the 2026-07-03-gate-baseref-guard boundary).
+# unseen.
 #
 # A dash-leading value is refused before git is asked anything. The base-ref
 # file's CONTENT is repository-suppliable, and every git command here takes it
@@ -24,8 +24,8 @@ base_resolves() {
   git -C "$1" rev-parse --verify --quiet "$2^{commit}" >/dev/null
 }
 
-# The one diff-digest formula: gate receipts, check-criteria receipts,
-# receipt verification, and the acceptance marker all hash these bytes.
+# The one diff-digest formula: check-criteria receipts, receipt verification,
+# and the acceptance marker all hash these bytes.
 #
 # The base is verified HERE rather than only at the call sites, because this is
 # the sink: `git diff --output=<path>` writes that path, and a repository that
@@ -33,8 +33,8 @@ base_resolves() {
 # function through shape mode - which executes nothing, is deliberately not
 # provenance-guarded, and runs at every implement round. Measured from a clone:
 # a file outside the repository truncated at exit 0 under `check-criteria: OK`,
-# with no symlink and no local write access. Four of the five call sites already
-# gated and lose nothing; bin/check-criteria.sh was the one that did not.
+# with no symlink and no local write access. The other call sites already gated
+# and lose nothing; bin/check-criteria.sh was the one that did not.
 #
 # An unresolvable base yields the empty-diff digest instead of an error because
 # that is byte-identical to what this has always returned for the shipped shape
@@ -48,7 +48,7 @@ diff_digest() {
 
 # True when <ws> is a real task workspace and <rel> (optional) is a path that
 # will be written inside it - the one containment test every workspace mutation
-# and the receipt audit ask first (FU-16). A symlink at .harmonia, at tasks, at
+# and the receipt audit ask first. A symlink at .harmonia, at tasks, at
 # <id>, at a directory under the workspace or at the artifact file itself
 # redirects the write, and the redirect is invisible to the caller's own exit
 # status, so the question is asked before the write rather than checked after.
@@ -75,7 +75,7 @@ ws_contained() {   # <ws> [<rel-under-ws>] -> 0 inside, 1 refuse
   # leading slash - which the single-component test on the next line refuses on
   # its own. A shape test would be a strict subset of it and could not be reached
   # by any constructible path. The single-component test is load-bearing and is
-  # pinned by coverage.bats's `nested-task-path` cell.
+  # pinned by receipts.bats's `nested-task-path` cell.
   wsid="${ws_real##*/.harmonia/tasks/}"
   case "$wsid" in */*|"") return 1 ;; esac
   root="$(cd "$ws/../../.." 2>/dev/null && pwd -P)" || return 1
@@ -115,18 +115,17 @@ ws_contained() {   # <ws> [<rel-under-ws>] -> 0 inside, 1 refuse
 # shape and keeps working.
 # Exit codes are three, not two, because "it arrived with the repository" and
 # "git will not tell me" need different words to the user: the first has a
-# remedy (untrack it), the second does not, and round 2 shipped one message for
-# both - telling a developer their own minted marker arrived with the repo, and
-# sending them to a command that rewrites content when the property is index
-# membership.
+# remedy (untrack it), the second does not. One message for both would tell a
+# developer their own minted marker arrived with the repo, and send them to a
+# command that rewrites content when the property is index membership.
 #   0 = tracked: it arrived with the repository
 #   1 = provably the user's
 #   2 = undecidable: a repository is here and git cannot be trusted to answer
 # One repository's answer, about a path relative to ITS root.
 #   0 = it has <path>   1 = it does not   2 = it cannot answer
 #
-# Two questions, both O(path depth), and nothing else. The property is pinned in
-# scope.md's round-9 section: the index, or the tree of the commit checked out.
+# Two questions, both O(path depth), and nothing else. The property is: the
+# index, or the tree of the commit checked out.
 # History that is not checked out is not consulted - an earlier build walked all
 # refs and paid for it with false refusals (a live stash, a fetched colleague's
 # branch, a deleted-then-recreated task id) and with an O(reachable commits) audit
@@ -136,7 +135,8 @@ _repo_claims() {   # <repo-dir> <path-relative-to-that-dir>
   # Is a repository OPEN here at all? An empty `.git` directory and a dangling or
   # looping `.git` symlink all answer no, and the caller walks past them - that is
   # what stops an unusable .git in some unrelated ancestor refusing every
-  # legitimate run, without the position rule whose bypass was round 8's B2.
+  # legitimate run, without a position rule, since an honest empty repository
+  # below the broken one would bypass one.
   git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 || return 1
 
   # A repository IS open. From here every failure is a refusal, at any level.
@@ -177,7 +177,7 @@ ws_tracked() {   # <ws> <rel>
     cd "$1" 2>/dev/null || exit 2
     d="$(pwd -P)"; suffix="$2"
     # Ask EVERY repository at or above the workspace, not the first one found.
-    # Stopping at the first was the whole of round 4's B1: one `git init` dropped
+    # Stopping at the first is not enough: one `git init` dropped
     # into a delivered tree answers "not tracked" perfectly truthfully, because
     # the payload is tracked in the repository ABOVE it, and the outer one was
     # never asked. Requiring the resolved toplevel to match does not catch it -

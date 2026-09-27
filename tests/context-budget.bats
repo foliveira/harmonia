@@ -14,7 +14,7 @@
 #     lifecycle.yaml into the same context;
 #   - a SKILL.md body stays under the progressive-disclosure ceiling; move
 #     reference material an average run never needs into a sibling file read
-#     on demand (skills/onboard/CERTIFY.md is the pattern).
+#     on demand.
 
 # The five skills the session transcripts show being invoked via the Skill
 # tool: flow and quick from prose, plan/implement/review chained by the

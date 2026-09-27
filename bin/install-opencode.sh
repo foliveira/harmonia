@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # install-opencode.sh - install harmonia into an OpenCode config directory.
 #
-# Places two things under the target (design D3 of the multi-harness-install
-# task): <target>/harmonia, an engine home mirroring the repo's bin/, core/,
+# Places two things under the target:
+# <target>/harmonia, an engine home mirroring the repo's bin/, core/,
 # and skills/; and <target>/commands/harmonia-<name>.md, one generated
 # OpenCode command file per skills/<name>/SKILL.md. Placed *.md and *.yaml
-# are rewritten on the way (D4): the closed-literal dollar-brace
+# are rewritten on the way: the closed-literal dollar-brace
 # CLAUDE_PLUGIN_ROOT reference becomes the absolute engine home (the exact
 # byte pattern is in the sed below - spelling it out here would put the one
 # string the install gate greps for into a byte-copied file), and the
@@ -16,7 +16,7 @@
 # Target resolution: --target beats OPENCODE_CONFIG_DIR beats
 # $HOME/.config/opencode. Re-running converges to a fresh install: the
 # engine home is rebuilt via temp-build-and-swap, and only command files
-# carrying the generation marker are ever removed (D5). No live harness is
+# carrying the generation marker are ever removed. No live harness is
 # invoked and no OpenCode config file is edited.
 set -euo pipefail
 
@@ -33,18 +33,18 @@ die() { # die <exit-code> <message...>
   exit "$code"
 }
 
-# FU-3: the swap-time ownership re-check plus the one destructive removal and
+# The swap-time ownership re-check plus the one destructive removal and
 # the swap, as a single unit a test can drive in isolation (a foreign dir
 # appearing during the build-and-swap window, which pre-flight at :82 ran too
 # early to see). Belt-and-suspenders, deliberately duplicating the pre-flight
-# ownership test at a second moment; both guards are intended (scope FU-3).
+# ownership test at a second moment; both guards are intended.
 swap_engine_home() { # swap_engine_home <engine_home> <staged_tmp>
   local eh="$1" staged="$2"
   # Re-verify ownership immediately before the destructive rm -rf: if a foreign,
   # unmarked directory is now at the engine home, refuse and leave it intact -
   # never remove it.
   if [ -e "$eh" ] && [ ! -f "$eh/core/RULES.md" ]; then
-    die 1 "refusing: $eh is no longer a harmonia install (no core/RULES.md); left intact, not removed"  # harmonia:exempt kcov does not attribute a die reached only through the sourceable seam's sourced-then-called path; the FU-3 injection test asserts this refusal deterministically (mutants that drop or reorder the check both die)
+    die 1 "refusing: $eh is no longer a harmonia install (no core/RULES.md); left intact, not removed"
   fi
   rm -rf -- "$eh"          # unconditional; rm -rf is silent on a missing path
   mv -- "$staged" "$eh"
@@ -85,7 +85,7 @@ fi
 # would embed a cwd-dependent or double-slashed path into every placed body.
 mkdir -p -- "$target"
 target="$(cd -- "$target" && pwd)"
-# FU-1: refuse a target whose PHYSICAL location is the filesystem root, so a
+# Refuse a target whose PHYSICAL location is the filesystem root, so a
 # --target that is a symlink resolving to / cannot slip past this guard (the
 # logical pwd above returns the symlink's own path). The physical form is used
 # only for this comparison; the spliced engine-home path stays the logical
@@ -140,7 +140,7 @@ trap 'rm -rf -- "$tmp"' EXIT
 mkdir -p -- "$tmp"
 cp -R -- "$src/bin" "$src/core" "$src/skills" "$tmp/"
 
-# T1 + T2 on placed *.md/*.yaml. The engine home is spliced literally:
+# The two rewrites on placed *.md/*.yaml. The engine home is spliced literally:
 # backslash, & (whole-match in a sed replacement), and the | delimiter are
 # sed-escaped; every other shell-unsafe character was refused by the charset
 # guard above, so no metacharacter reaches an unquoted command-body instruction.
@@ -170,7 +170,7 @@ for d in "$engine_home"/skills/*/; do
   {
     printf -- '---\n%s\n---\n%s\n' "$desc" "$MARKER"
     awk 'b{print; next} /^---$/{if(++n==2) b=1}' "$skill"
-  } > "$cmd_dir/harmonia-$name.md"  # harmonia:exempt kcov cannot attribute this brace-group redirect closer; the body it writes is pinned by the body-completeness test
+  } > "$cmd_dir/harmonia-$name.md"
   count=$((count + 1))
 done
 

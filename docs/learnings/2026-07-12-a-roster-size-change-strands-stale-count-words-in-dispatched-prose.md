@@ -37,3 +37,13 @@ covers the gap.
 
 Tier: project - the roster, the lens prose, and the criteria style are this
 repo's own.
+
+## Status of the instance: closed, 2026-09-27
+
+Task 2026-08-28-ste100-prose changed the word. `core/lenses/performance.md:13`
+now reads "a bounded twelve-element roster". `grep -rn thirteen core agents skills README.md`
+prints nothing. The developer pulled the fix into that task, which already had
+the line open for an em dash.
+
+The regression lens has no open instance left to surface. The class paragraph
+and the scoping-time sweep still apply to the next size-changing task.

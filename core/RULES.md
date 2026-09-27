@@ -24,4 +24,4 @@ Touch only what the task requires. No drive-by refactors, no "improving" adjacen
 
 Turn tasks into verifiable success criteria so progress can be checked, not felt.
 
-**Binding in Harmonia:** the scoper compiles every task into criteria a command can verify; gates (criteria, tests, coverage) decide done-ness, and receipts prove the gates actually ran. "Looks good" is never a completion signal.
+**Binding in Harmonia:** the scoper compiles every task into criteria a command can verify; gates (criteria, tests) decide done-ness, and receipts prove the gates actually ran. "Looks good" is never a completion signal.

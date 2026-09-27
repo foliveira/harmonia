@@ -37,7 +37,7 @@ setup() {
   # the shell actually enforces it (DRY).
   grep -qF 'workspace.sh clear-span' "$F"                                       # step 1 delegates clearing to the subcommand
   grep -qiE 'stale prior-run|prior-run out|leftover' "$F"                       # still framed as stale prior-run clearing
-  ! grep -qiE 'remove .*design\.md.*boundary\.md.*diff-summary\.md.*verdict\.md.*gate-report\.md' "$F"  # the inline five-file list is gone
+  ! grep -qiE 'remove .*design\.md.*boundary\.md.*diff-summary\.md.*verdict\.md' "$F"  # the inline file list is gone
 }
 
 @test "the runner guards scope criteria at entry, refusing a criteria-less scope" {
@@ -91,13 +91,16 @@ setup() {
   grep -qiE 'status.*pass|non-zero' <<<"$step3"          # the signal: status != pass / non-zero exit
 }
 
-@test "the runner halts on a failing review coverage, criteria, or receipts gate" {
-  # scope: a failing coverage/receipts gate at review halts the run; the runner
-  # never records a coverage override to keep going
-  grep -qi 'coverage' "$F"
+@test "the runner halts on a failing review criteria or receipts gate, and waits on no coverage gate" {
+  # scope: a failing criteria/receipts gate at review halts the run. Coverage is
+  # retired as a gate, so the runner must neither halt on one nor mention an
+  # override: a runner still carrying either walks a developer into a gate that
+  # no longer exists.
   grep -qi 'receipts' "$F"
   grep -qi 'halt' "$F"
-  grep -qi 'never record a coverage override' "$F"
+  if grep -qi 'coverage' "$F"; then
+    echo "flow/SKILL.md still names coverage, which is no longer a gate"; false
+  fi
   # The review stage now runs a criteria gate too, so step 5's halt list must name
   # it or the runner walks past a failing criterion. Pin it to step 5's OWN line,
   # following the step-3 test above: step 1's pre-existing entry-gate prose already
@@ -131,7 +134,7 @@ setup() {
   grep -qF '${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml' "$F"
   grep -qF '${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh' "$F"
   grep -q 'do not hardcode' "$F"
-  grep -q 'R9' "$F"
+  grep -qi 'orchestrate only' "$F"
 }
 
 @test "the runner delegates to the stage skills rather than duplicating them" {

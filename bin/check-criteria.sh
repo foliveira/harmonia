@@ -40,7 +40,7 @@ case "$REPO" in -*) REPO="./$REPO" ;; esac
 
 SCOPE="$WS/scope.md"
 if [ ! -f "$SCOPE" ]; then
-  echo "check-criteria: no scope declaration at $SCOPE - run the scoper first (R31)" >&2
+  echo "check-criteria: no scope declaration at $SCOPE - run the scoper first" >&2
   exit 3
 fi
 
@@ -54,8 +54,7 @@ fi
 # there is no index to ask, so the file is treated as the user's - a hand-made
 # workspace in a non-git tree is the shipped shape, and the block at
 # tests/hooks.bats is what pins it (the non-git accept cell of the fail-closed
-# block; cited by name rather than line, because this task has moved that line
-# twice and a stale citation was a finding in both prior rounds).
+# block; cited by name rather than line, because line numbers drift).
 # Run mode only: shape mode executes nothing, and the same rule before the mode
 # split would refuse work no one can run. Before any write, so a hostile clone
 # leaves no receipt claiming a run happened.
@@ -75,7 +74,7 @@ if [ "$RUN" -eq 1 ]; then
   }
   # base-ref gets the same question, and in run mode only for the same reason
   # scope.md does: shape mode executes nothing, and a rule placed before the mode
-  # split refuses work no one can run - the over-reach probe of C4 is what
+  # split refuses work no one can run - the over-reach probe in tests/hooks.bats
   # measures that. Here the base selects the tree this run receipts a digest for.
   base_reason="$(ws_provenance_reason "$WS" base-ref)" || {
     echo "check-criteria: FAIL - $base_reason"
@@ -113,11 +112,11 @@ NTOTAL=0
 NFAILED=0
 
 # One writer, two gate names: the run mode's result is code-dependent and must
-# not travel under the freshness-waived `check-criteria` name (the gate-name waiver in bin/coverage/gate.sh)
+# not travel under the freshness-waived `check-criteria` name (the gate-name waiver in bin/verify-receipts.sh)
 # or clobber the implement-stage shape receipt.
 RECEIPT="check-criteria"
 [ "$RUN" -eq 1 ] && RECEIPT="criteria-run"
-# The workspace PATH has not earned trust either (FU-16): a symlink anywhere on
+# The workspace PATH has not earned trust either: a symlink anywhere on
 # the way to it redirects this write, and the writer's own exit status cannot see
 # where the bytes went. Both call sites and both modes route through here - shape
 # mode reaches the same writer at every implement round, which is the more
@@ -155,7 +154,7 @@ if [ "$RUN" -eq 1 ] && [ -n "$CRITERIA" ]; then
   # The receipt goes down BEFORE the loop, carrying the pre-run digest every gate
   # of this round hashes and a status no reader can take for a pass. A shipped
   # criterion audits this very directory from inside the run
-  # (`gate.sh --verify-receipts`, the shape every task here carries): without this
+  # (`verify-receipts.sh`, the shape every task here carries): without this
   # write, what it finds is the PREVIOUS round's receipt, stale against a tree that
   # changed since, so that criterion could not pass on any round after the first
   # however good the work was. Rewritten with the verdict once the loop ends; a run

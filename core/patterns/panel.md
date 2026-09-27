@@ -1,6 +1,6 @@
-# Panel — model-diverse fan-out with synthesis (R29)
+# Panel — model-diverse fan-out with synthesis
 
-A reusable orchestration pattern. The v1 consumer is the review lead; wider roster uses are future work.
+A reusable orchestration pattern. The review lead runs it for review, and the ideator may run it for divergence.
 
 ## Shape
 
@@ -13,4 +13,4 @@ A reusable orchestration pattern. The v1 consumer is the review lead; wider rost
 - A panel without a synthesis step is just noise multiplied; never skip step 3.
 - Seat count follows the question: two seats for a fork, three to five for open review. More seats than distinct perspectives is waste (Simplicity First).
 - Disagreement between seats is signal — surface it in the synthesis with both positions and the evidence, rather than averaging it away.
-- The synthesis result is written to the task workspace; seat transcripts are not (files over conversation, R8).
+- The synthesis result is written to the task workspace; seat transcripts are not (files over conversation).

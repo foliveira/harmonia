@@ -87,10 +87,10 @@ Every session starts with the 4 rules and relevant learnings injected automatica
 | `/harmonia:ideate` | ideator (+ rubber duck) widen the option space into `ideas.md` |
 | `/harmonia:discuss` | scoper pins scope — goal, boundaries, non-goals, `run:` success criteria |
 | `/harmonia:plan` | planner designs inside the scope boundary |
-| `/harmonia:implement` | red-green loop: test engineer leads, implementer follows, coverage gate feeds gap rounds |
+| `/harmonia:implement` | red-green loop: test engineer leads and aims to exercise all the changed code, implementer follows |
 | `/harmonia:review` | review lead chairs the panel, dispatches triggered lenses, audits gates and receipts, writes one verdict |
 | `/harmonia:capture` | knowledge curator files learnings; committer ships structured commits |
-| `/harmonia:quick` | express lane: implementer + lead-solo review, gates still active |
+| `/harmonia:quick` | express lane: implementer + lead-solo review |
 
 Each task lives in `.harmonia/tasks/<task-id>/` in the target repo — a self-gitignoring workspace where stages pass artifacts by path. Entry stages mint it; later stages resolve it; interruption recovery is re-invoking a stage against the on-disk artifacts.
 
@@ -109,19 +109,19 @@ Six commands act on a task outside the lifecycle stages: they record your decisi
 
 ### Outside the lifecycle
 
-Three more commands are neither stages nor touchpoints. One chains stages; two set a repo up before any task runs.
+Two more commands are neither stages nor touchpoints. One chains stages; the other sets a repo up before any task runs.
 
 | Command | What it does |
 |---|---|
 | `/harmonia:flow` | Runs an already-pinned task through plan, implement, and review in one unattended pass. It chains neither end: discuss stays manual because it is dialogic, and acceptance stays manual under the human-only gate. |
-| `/harmonia:onboard` | Captures an existing repo's canonical verify commands and its own coverage command into `.harmonia/project.yaml`. |
-| `/harmonia:trust` | Records your consent, on this machine, to run a repository's `.harmonia/project.yaml` coverage command. Until you do, that command is refused. |
+| `/harmonia:onboard` | Captures an existing repo's canonical verify commands into `.harmonia/project.yaml`. |
 
 ## The gates
 
 - **Criteria** — implement refuses to start until the scope declaration carries machine-checkable `- run:` criteria; at review the `criteria-run` gate executes every one of them from the repo root, echoes the whole set it ran, and fails the review if any criterion fails.
-- **Coverage** — 100% line (and branch, where the format measures it) on changed code, soft block. Exemptions are in-code markers with a mandatory justification (`// harmonia:exempt <why>`), surfaced to the reviewer in the gate report's exemptions-honored section. Overrides append to a versioned audit log at `.harmonia/coverage-exemptions.yaml`. Unsupported languages exit as advisory cannot-measure, never a false pass.
 - **Receipts** — every gate run writes a receipt (task id, timestamp, diff digest); review fails work whose receipts are missing or stale, and a test-immutability hash violation is treated the same way.
+
+Coverage is not a gate. The test engineer aims for every changed line and branch to be exercised by a test that asserts behavior, and judges that by reading the diff against the tests. Harmonia ships no coverage tooling and nothing blocks on a coverage number.
 
 ## Memory
 
@@ -135,7 +135,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/bin/memory/recall.sh
 
 ## Security
 
-Pointing Harmonia at a repository runs some of that repository's own configuration, so the trust model is written down rather than implied. [`SECURITY.md`](SECURITY.md) states what is guarded — workspace containment, artifact provenance, and consent for a repository's coverage command — and, just as explicitly, which routes are deliberately still open. Report a vulnerability privately through the process it describes, never a public issue.
+Pointing Harmonia at a repository runs some of that repository's own configuration, so the trust model is written down rather than implied. [`SECURITY.md`](SECURITY.md) states what is guarded — workspace containment and artifact provenance — and, just as explicitly, which routes are deliberately still open. Report a vulnerability privately through the process it describes, never a public issue.
 
 ## The roster
 
@@ -172,15 +172,14 @@ Five files in `core/lenses/`. Each declares its own triggers in frontmatter, so 
 
 ## Developing the engine
 
-Dev toolchain: `bats`, `jq`, `yamllint`, `check-jsonschema`, `kcov`, `diff-cover` (and `gocover-cobertura` for Go targets).
+Dev toolchain: `bats`, `jq`, `yamllint`, `check-jsonschema`.
 
 ```bash
 bats tests/                                  # the whole suite
 bin/validate-core.sh                         # lifecycle schema + lens resolution
-bin/coverage/gate.sh --self --base <ref>     # the gate, dogfooded on this repo
 ```
 
-The engine is bash + YAML only, and it is held to its own coverage bar.
+The engine is bash + YAML only.
 
 ## Credits
 

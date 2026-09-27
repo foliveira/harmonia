@@ -2,10 +2,10 @@
 # Behavioral tests for `workspace.sh clear-span` (F3/item A). Unlike
 # lifecycle-runner.bats (which greps runner prose), these run the REAL
 # bin/workspace.sh against a scratch workspace under $BATS_TEST_TMPDIR and
-# assert what it removes, preserves, and reports - the six-file list and
+# assert what it removes, preserves, and reports - the five-file list and
 # path-confinement now live in shell a test exercises, not runner prose.
 # No git needed for clear-span/pick (they touch no git). Conventions follow
-# coverage.bats (REPO_ROOT from $BATS_TEST_FILENAME, scratch under TMPDIR).
+# receipts.bats (REPO_ROOT from $BATS_TEST_FILENAME, scratch under TMPDIR).
 #
 # This file also pins the `reject` engine (record + block): the new
 # `workspace.sh reject` subcommand, the accept<->reject mutual-exclusivity pair,
@@ -20,7 +20,7 @@ setup() {
   mkdir -p "$R/.harmonia/tasks"
 }
 
-# fabricate a workspace: 6 span out-artifacts + every survivor the scope lists.
+# fabricate a workspace: 5 span out-artifacts + every survivor the scope lists.
 # `violations` joins the span set once lifecycle.yaml declares it an implement
 # out-artifact: review FAILS on the record's presence (skills/review/SKILL.md),
 # so a stale one from a prior run would fail the next run for something that
@@ -28,7 +28,7 @@ setup() {
 seed_ws() {
   local id="$1" d="$R/.harmonia/tasks/$1"
   mkdir -p "$d/receipts"
-  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations \
+  for f in design.md boundary.md diff-summary.md verdict.md violations \
            scope.md ideas.md accepted done minted base-ref; do : > "$d/$f"; done
   : > "$d/receipts/check-criteria.json"    # a receipt must survive (the .git-incident guard)
 }
@@ -40,7 +40,7 @@ seed_ws() {
 seed_incomplete() {
   local id="$1" d="$R/.harmonia/tasks/$1"
   mkdir -p "$d/receipts"
-  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations \
+  for f in design.md boundary.md diff-summary.md verdict.md violations \
            scope.md ideas.md minted base-ref; do : > "$d/$f"; done
   : > "$d/receipts/check-criteria.json"
 }
@@ -48,7 +48,7 @@ seed_incomplete() {
 # Build a one-commit git repo at $G (caller sets G) and mint a workspace in it
 # via the REAL workspace.sh; echo the minted task id. mint records base-ref as
 # HEAD, so it resolves and the shared diff_digest computes (a clean tree -> the
-# empty-diff digest). Mirrors coverage.bats's scratch repo and the scope's
+# empty-diff digest). Mirrors receipts.bats's scratch repo and the scope's
 # success-criteria git pattern. Side effects land on disk (they survive the
 # command-substitution subshell); only stdout, the id, is captured.
 git_ws() {
@@ -59,16 +59,16 @@ git_ws() {
   bash "$WS_SH" mint --repo "$G" --slug rej
 }
 
-@test "clear-span removes the six span out-artifacts and preserves everything else" {
+@test "clear-span removes the five span out-artifacts and preserves everything else" {
   # criterion 1: removes design.md/boundary.md/diff-summary.md/verdict.md/
-  # gate-report.md/violations; preserves scope.md/ideas.md/accepted/done/minted/
+  # violations; preserves scope.md/ideas.md/accepted/done/minted/
   # base-ref and the whole receipts/ dir; reports what it cleared. --task addresses
   # the seeded (done-marked) workspace, which pick reaches by id regardless of done.
   seed_ws 2026-07-05-demo
   run bash "$WS_SH" clear-span --repo "$R" --task 2026-07-05-demo
   [ "$status" -eq 0 ]
   d="$R/.harmonia/tasks/2026-07-05-demo"
-  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations; do [ ! -f "$d/$f" ]; done
+  for f in design.md boundary.md diff-summary.md verdict.md violations; do [ ! -f "$d/$f" ]; done
   for f in scope.md ideas.md accepted done minted base-ref; do [ -f "$d/$f" ]; done
   [ -f "$d/receipts/check-criteria.json" ]     # receipts/ untouched
   [[ "$output" == *"design.md"* ]]             # reports what it cleared
@@ -127,13 +127,13 @@ git_ws() {
 
 @test "clear-span resolves the single incomplete workspace with no --task (runner path)" {
   # F-B: the flow runner calls `clear-span --repo .` with NO --task; pick's
-  # single-incomplete branch must resolve it, clear the six, and keep scope.md.
+  # single-incomplete branch must resolve it, clear the five, and keep scope.md.
   # seed_incomplete omits the done marker so incomplete() actually reaches it.
   seed_incomplete 2026-07-05-live
   run bash "$WS_SH" clear-span --repo "$R"
   [ "$status" -eq 0 ]
   d="$R/.harmonia/tasks/2026-07-05-live"
-  for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations; do [ ! -f "$d/$f" ]; done
+  for f in design.md boundary.md diff-summary.md verdict.md violations; do [ ! -f "$d/$f" ]; done
   [ -f "$d/scope.md" ]                 # the pinned input survives
   [[ "$output" == *"design.md"* ]]     # reports what it cleared
 }
@@ -391,7 +391,7 @@ git_ws() {
 # CREATES the tree it would have to resolve. It is enumerated from the script
 # rather than copied from a boundary list on purpose: the two sites this repo
 # discovered late were both deletions (accept removes `rejected`, reject removes
-# `accepted`) and clear-span, which writes nothing at all and removes six named
+# `accepted`) and clear-span, which writes nothing at all and removes five named
 # files on /harmonia:flow's own entry path.
 #
 # Two redirect forms, because they fail differently. `tasks-tree` puts a symlink
@@ -451,7 +451,7 @@ stage_wsmut() {   # <form>: one repo per form, one task directory per command; s
   for cmd in $WS_MUTATORS; do
     d="$real/.harmonia/tasks/2026-01-01-$cmd"
     mkdir -p "$d/receipts"
-    for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations \
+    for f in design.md boundary.md diff-summary.md verdict.md violations \
              accepted rejected done abandoned test-hashes scope.md; do printf 'PLANTED\n' > "$d/$f"; done
     printf 'ref: %s\n' "$ref" > "$d/base-ref"   # resolvable, so accept and reject reach their write instead of refusing for another reason
   done
@@ -492,7 +492,7 @@ stage_wsmut() {   # <form>: one repo per form, one task directory per command; s
         case "$cmd" in
           clear-span)
             [ "$status" -eq 0 ]
-            for f in design.md boundary.md diff-summary.md verdict.md gate-report.md violations; do [ ! -e "$d/$f" ]; done ;;
+            for f in design.md boundary.md diff-summary.md verdict.md violations; do [ ! -e "$d/$f" ]; done ;;
           accept)
             [ "$status" -eq 0 ]; [ "$(head -1 "$d/accepted")" != "PLANTED" ]; [ ! -e "$d/rejected" ] ;;
           reject)
@@ -800,8 +800,8 @@ stage_read() {   # <form>: sets RR (repo) and RW (workspace), with a genuinely e
   : > "$real/.harmonia/tasks/T/test-hashes"
   printf 'ref: HEAD\n' > "$real/.harmonia/tasks/T/base-ref"
   printf '## Success Criteria\n- run: true\n' > "$real/.harmonia/tasks/T/scope.md"
-  cat > "$real/.harmonia/tasks/T/receipts/coverage.json" <<JSON
-{ "gate": "coverage", "task_id": "T", "timestamp": "2026-01-01T00:00:00Z", "diff_digest": "$empty", "status": "pass" }
+  cat > "$real/.harmonia/tasks/T/receipts/criteria-run.json" <<JSON
+{ "gate": "criteria-run", "task_id": "T", "timestamp": "2026-01-01T00:00:00Z", "diff_digest": "$empty", "status": "pass" }
 JSON
   git -C "$real" init -q
   git -C "$real" add -A -f
@@ -814,7 +814,7 @@ JSON
   [ "$status" -ne 0 ]
   run bash "$REPO_ROOT/bin/check-criteria.sh" --run --workspace "$real/.harmonia/tasks/T" --repo "$real" </dev/null
   [ "$status" -ne 0 ]
-  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --repo "$real" --workspace "$real/.harmonia/tasks/T"
+  run bash "$REPO_ROOT/bin/verify-receipts.sh" --repo "$real" --workspace "$real/.harmonia/tasks/T"
   [ "$status" -ne 0 ]
 
   # The remedy every one of them names: a freshly minted workspace.
@@ -833,8 +833,7 @@ JSON
   run bash "$REPO_ROOT/bin/check-criteria.sh" --run --workspace "$w" --repo "$real" </dev/null
   echo "criteria: $status $output"
   [ "$status" -eq 0 ]
-  bash "$REPO_ROOT/bin/coverage/gate.sh" --repo "$real" --workspace "$w" >/dev/null 2>&1
-  run bash "$REPO_ROOT/bin/coverage/gate.sh" --verify-receipts --repo "$real" --workspace "$w"
+  run bash "$REPO_ROOT/bin/verify-receipts.sh" --repo "$real" --workspace "$w"
   echo "receipts: $status $output"
   [ "$status" -eq 0 ]
 }

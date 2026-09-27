@@ -19,14 +19,15 @@ Run in a fresh sandbox repo (copy `tests/fixtures/sandbox/`). Each step names it
 
 ## 3. Express lane and the soft block (AE1)
 
+Kept as a record of the 2026-07-02 drive. Coverage is no longer a gate, so this soft block no longer exists.
+
 - [x] `/harmonia:quick` on a change leaving uncovered lines: gate fails soft; reviewer reads the report file. **Observed (headless run):** workspace `2026-07-02-tool-sh-usage-comment` minted with base-ref; gate report `status: 1`, `tool.sh:ALL (absent from coverage data)`; digest-bearing receipt written; the review lead's `verdict.md` cited the gate report, arbitrated the soft block as non-blocking with reasoning, and **failed the review on a real finding it caught itself** (the usage comment documented an invocation that didn't work) — which the loop then fixed.
-- [ ] Record an override and see it cited in a verdict. *Script-level evidence: bats asserts `--record-override` appends one well-formed audit-log entry. First-drive item.*
 
 ## 4. Full cycle on a feature-shaped task — live session
 
 - [ ] `/harmonia:discuss` mints `scope.md` once; `/harmonia:plan` refines, never re-mints (R31). *Script-level evidence: skills lint + workspace matrix. First-drive item.*
 - [x] `/harmonia:implement` with prose-only criteria refuses, naming the offender, receipt still written (AE2 intake). **Observed (headless):** resolved the active workspace, rejected `make it nicer` as not machine-checkable, wrote the failing receipt, refused to patch scope itself ("that's the scoper's job"), and pointed at `/harmonia:plan`.
-- [ ] Cover-first round closes a seeded gap green-on-arrival, implementer turn skipped (AE7). *Script-level evidence: gate report feeds gaps; hash discipline tested in the workspace matrix. First-drive item.*
+- [ ] Cover-first round closes a gap the test engineer found by reading the diff, green-on-arrival, implementer turn skipped (AE7). *Script-level evidence: hash discipline tested in the workspace matrix. First-drive item.*
 - [ ] Adversarial lens fires on a new abstraction; verdict carries attributed findings (AE8). *Script-level evidence: lens frontmatter triggers + stage declarations validated. First-drive item.*
 - [x] `/harmonia:capture`: curator files learnings; committer ships structured commits (R6). **Observed (headless):** single-concern commit `8d677c4 "Add usage comment to tool.sh"`, nothing outside the boundary, no workspace files; the curator declined to capture a learning for a one-line comment task — the refuse-noise clause of its charter.
 

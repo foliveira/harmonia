@@ -17,4 +17,4 @@ Capture ONE learning through the memory script with an explicit tier. Never a ba
 echo "<the learning body>" | bash ${CLAUDE_PLUGIN_ROOT}/bin/memory/capture.sh --tier <project|global> [--client] --title "<short title>" --tags "<lang,topic>"
 ```
 
-Client content never reaches the global tier (R21): `capture.sh` refuses a `--client` write to `--tier global` with a non-zero exit, and refuses a global entry with no recognized language tag (it would be unreachable by recall). That deterministic guard is the backstop behind the tier you elicit - not a licence to default the tier. Surface the script's output.
+Client content never reaches the global tier: `capture.sh` refuses a `--client` write to `--tier global` with a non-zero exit, and refuses a global entry with no recognized language tag (it would be unreachable by recall). That deterministic guard is the backstop behind the tier you elicit - not a licence to default the tier. Surface the script's output.

@@ -24,7 +24,7 @@ case "$TIER" in global|project) ;; *) echo "capture: --tier must be global or pr
 
 # R21: client-work knowledge never reaches the global store.
 if [ "$CLIENT" -eq 1 ] && [ "$TIER" = "global" ]; then
-  echo "capture: refused - client-flagged content cannot be written to the global tier (R21); use --tier project" >&2
+  echo "capture: refused - client-flagged content cannot be written to the global tier; use --tier project" >&2
   exit 2
 fi
 

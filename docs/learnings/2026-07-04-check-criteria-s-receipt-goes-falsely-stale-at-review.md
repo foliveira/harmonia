@@ -35,11 +35,8 @@ running even when check-criteria.json sorts first in the glob. coverage.bats tes
 24 pins this by mutation: swapping continue for break makes test 24 fail.
 
 Same theme as the acceptance-marker entry
-(2026-07-02-acceptance-marker-attests-a-diff-it-never-saw.md) and the
-vacuous-base entry
-(2026-07-02-coverage-gate-passes-vacuously-on-an-unresolvable-base-ref.md, which
-names this same empty-diff digest): every attestation built on `git diff <base>`
-inherits the diff's blind spots. A sibling blind spot in the same formula,
+(2026-07-02-acceptance-marker-attests-a-diff-it-never-saw.md): every attestation
+built on `git diff <base>` inherits the diff's blind spots. A sibling blind spot in the same formula,
 untracked files, is recorded in
 2026-07-04-the-diff-digest-excludes-untracked-files.md.
 

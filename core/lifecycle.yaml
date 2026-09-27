@@ -1,5 +1,5 @@
-# Harmonia lifecycle (KTD3) - stages, agent sequences, artifact contract, gates.
-# Skills read this file instead of hardcoding stage logic (R9).
+# Harmonia lifecycle - stages, agent sequences, artifact contract, gates.
+# Skills read this file instead of hardcoding stage logic.
 # `workspace:` locations are relative to the task workspace .harmonia/tasks/<task-id>/.
 version: 1
 
@@ -34,7 +34,7 @@ stages:
     entry: true
     agents: [scoper, planner]
     # The scoper mints workspace:scope.md only when discuss didn't already;
-    # an existing declaration is consumed and refined, never re-minted (R31).
+    # an existing declaration is consumed and refined, never re-minted.
     artifacts:
       in:
         - name: scope
@@ -48,14 +48,15 @@ stages:
     gates: []
 
   implement:
-    purpose: Build the design against the coverage gate, tests leading.
+    purpose: Build the design, tests leading.
     agents: [test-engineer, implementer]
     loop:
       type: red-green
-      # Behavior-driven rounds are red-first; coverage-gap rounds are
-      # cover-first (a green-on-arrival test completes the round). On cap the
-      # loop exits incomplete and records the disagreement for the review
-      # lead to arbitrate - never escaping via an exemption marker (KTD12).
+      # Behavior-driven rounds are red-first; gap rounds, where the test
+      # engineer finds changed code no test exercises, are cover-first (a
+      # green-on-arrival test completes the round). Coverage is the test
+      # engineer's aim, never a gate. On cap the loop exits incomplete and
+      # records the disagreement for the review lead to arbitrate.
       max_rounds: 6
     artifacts:
       in:
@@ -80,7 +81,7 @@ stages:
     review:
       mode: panel
       panel: [test-engineer, simplifier, doc-reviewer]
-      # Trigger rules live in each lens file's frontmatter (KTD11); this list
+      # Trigger rules live in each lens file's frontmatter; this list
       # only names which lenses the stage may dispatch.
       lenses: [adversarial, security, performance, regression]
     artifacts:
@@ -97,9 +98,7 @@ stages:
       out:
         - name: verdict
           location: "workspace:verdict.md"
-        - name: gate-report
-          location: "workspace:gate-report.md"
-    gates: [coverage, criteria-run, receipts]
+    gates: [criteria-run, receipts]
 
   capture:
     purpose: Record learnings, then ship structured commits.
@@ -108,7 +107,7 @@ stages:
       in:
         # Behavioral acceptance: written only by the developer via
         # `workspace.sh accept` after exercising the built behavior.
-        # Human intent-match; machine gates prove correctness (KTD10).
+        # Human intent-match; machine gates prove correctness.
         - name: acceptance
           location: "workspace:accepted"
         - name: verdict
@@ -128,15 +127,13 @@ stages:
     agents: [implementer, reviewer]
     review:
       mode: lead-solo
-      # No panel; the security lens auto-trigger still applies (KTD8).
+      # No panel; the security lens auto-trigger still applies.
       lenses: [security]
     artifacts:
       in: []
       out:
-        - name: gate-report
-          location: "workspace:gate-report.md"
         - name: verdict
           location: "workspace:verdict.md"
         - name: completion
           location: "workspace:done"
-    gates: [coverage, receipts]
+    gates: []

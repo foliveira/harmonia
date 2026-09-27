@@ -35,9 +35,8 @@ Proposed mechanical defense, liftable into a scope declaration:
 - capture step 2 recomputes the digest and refuses on mismatch, telling the
   developer to re-accept; re-accept already overwrites the marker (deliberate D2
   mirror behavior) and becomes load-bearing in this flow;
-- the digest helper must not inherit the gate.sh empty-diff hole (see
-  2026-07-02-coverage-gate-passes-vacuously-on-an-unresolvable-base-ref.md) and
-  must handle mint's `ref: none` fallback.
+- the digest helper must not hash an empty diff for a base git cannot resolve,
+  and must handle mint's `ref: none` fallback.
 
 Ladder status: mechanized. Superseded: the guard landed in task
 2026-07-03-acceptance-hardening (no commit sha existed at capture time; this

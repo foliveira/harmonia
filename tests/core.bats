@@ -67,3 +67,25 @@ setup() {
     [ "$count" -eq 1 ]
   done
 }
+
+@test "coverage is the test engineer's aim and no stage gates on it" {
+  # Coverage was a gate with its own tooling; it is retired to a judgment the
+  # test engineer makes by reading the diff. A build that still ships the tooling,
+  # declares the gate, or tells an agent to run it reds here. Absence checks use
+  # `if grep; then false; fi`: `! grep` mid-body asserts nothing under errexit.
+  for p in bin/coverage bin/trust.sh skills/trust skills/onboard/CERTIFY.md; do
+    if [ -e "$REPO_ROOT/$p" ]; then echo "$p still ships"; false; fi
+  done
+  if grep -nE '^ +gates:.*coverage' "$REPO_ROOT/core/lifecycle.yaml"; then
+    echo "a stage still declares a coverage gate"; false
+  fi
+  if grep -n '"coverage"' "$REPO_ROOT/core/lifecycle.schema.json"; then
+    echo "the schema still admits a coverage gate"; false
+  fi
+  if grep -rnE 'coverage/gate\.sh|trust\.sh|diff-cover|kcov|gate-report|harmonia:exempt' \
+       "$REPO_ROOT/skills" "$REPO_ROOT/agents" "$REPO_ROOT/core" "$REPO_ROOT/bin"; then
+    echo "a shipped prompt or script still reaches for coverage tooling"; false
+  fi
+  # The presence half: the aim is stated where the test engineer reads it.
+  grep -qi 'coverage is your judgment, not a gate' "$REPO_ROOT/core/charters/test-engineer.md"
+}
