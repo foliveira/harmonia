@@ -70,7 +70,7 @@ pick() { # resolve --task override or the single incomplete workspace
   echo "$list" | sed '/^$/d'
 }
 
-# Guard first, then work (FU-16): the containment question is asked as the first
+# Guard first, then work: the containment question is asked as the first
 # statement after a command resolves its id, before any read and before any
 # write. That is what makes verify-test-hashes refuse a redirected manifest
 # rather than read it, and it is one line per command instead of one per sink.
@@ -259,7 +259,7 @@ case "$CMD" in
         echo "test-immutability VIOLATION at $(date -u +%Y-%m-%dT%H:%M:%SZ):"
         echo "$out"
       } >> "$TASKS/$ID/violations"
-      echo "workspace: test-immutability violation - the implementer may not edit tests (KTD12); recorded in the workspace for the review lead" >&2
+      echo "workspace: test-immutability violation - the implementer may not edit tests; recorded in the workspace for the review lead" >&2
       exit 1
     fi
     ;;
