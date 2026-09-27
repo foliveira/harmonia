@@ -134,7 +134,7 @@ setup() {
   grep -qF '${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml' "$F"
   grep -qF '${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh' "$F"
   grep -q 'do not hardcode' "$F"
-  grep -q 'R9' "$F"
+  grep -qi 'orchestrate only' "$F"
 }
 
 @test "the runner delegates to the stage skills rather than duplicating them" {

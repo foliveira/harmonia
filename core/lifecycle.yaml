@@ -1,5 +1,5 @@
-# Harmonia lifecycle (KTD3) - stages, agent sequences, artifact contract, gates.
-# Skills read this file instead of hardcoding stage logic (R9).
+# Harmonia lifecycle - stages, agent sequences, artifact contract, gates.
+# Skills read this file instead of hardcoding stage logic.
 # `workspace:` locations are relative to the task workspace .harmonia/tasks/<task-id>/.
 version: 1
 
@@ -34,7 +34,7 @@ stages:
     entry: true
     agents: [scoper, planner]
     # The scoper mints workspace:scope.md only when discuss didn't already;
-    # an existing declaration is consumed and refined, never re-minted (R31).
+    # an existing declaration is consumed and refined, never re-minted.
     artifacts:
       in:
         - name: scope
@@ -56,7 +56,7 @@ stages:
       # engineer finds changed code no test exercises, are cover-first (a
       # green-on-arrival test completes the round). Coverage is the test
       # engineer's aim, never a gate. On cap the loop exits incomplete and
-      # records the disagreement for the review lead to arbitrate (KTD12).
+      # records the disagreement for the review lead to arbitrate.
       max_rounds: 6
     artifacts:
       in:
@@ -81,7 +81,7 @@ stages:
     review:
       mode: panel
       panel: [test-engineer, simplifier, doc-reviewer]
-      # Trigger rules live in each lens file's frontmatter (KTD11); this list
+      # Trigger rules live in each lens file's frontmatter; this list
       # only names which lenses the stage may dispatch.
       lenses: [adversarial, security, performance, regression]
     artifacts:
@@ -107,7 +107,7 @@ stages:
       in:
         # Behavioral acceptance: written only by the developer via
         # `workspace.sh accept` after exercising the built behavior.
-        # Human intent-match; machine gates prove correctness (KTD10).
+        # Human intent-match; machine gates prove correctness.
         - name: acceptance
           location: "workspace:accepted"
         - name: verdict
@@ -127,7 +127,7 @@ stages:
     agents: [implementer, reviewer]
     review:
       mode: lead-solo
-      # No panel; the security lens auto-trigger still applies (KTD8).
+      # No panel; the security lens auto-trigger still applies.
       lenses: [security]
     artifacts:
       in: []

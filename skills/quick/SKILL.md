@@ -11,4 +11,4 @@ Read the `quick` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` - agents
 3. Dispatch the reviewer in lead-solo mode per the stage declaration - no panel; the security lens still auto-fires when its frontmatter triggers match the diff. One `verdict.md` to the workspace.
 4. Close: `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh complete --repo .`.
 
-Pass workspace paths, not prose recaps (R8). Orchestrate only (R9).
+Pass workspace paths, not prose recaps. Orchestrate only.

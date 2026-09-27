@@ -20,10 +20,10 @@ owns the artifact - the charter clause is the trigger; no lifecycle wiring.
 - Scope attack, dispatched by the scoper against the draft scope.md before
   its Success Criteria are pinned. Does any criterion pin a consumer-less
   decision - a field, flag, or record shape whose reader neither exists nor
-  ships in the same task? Two captured learnings carry that class. A
-  consumer-less field pinned into criteria costs a re-scope to remove, and
-  its R2 fix can be adding the real reader. Is the criteria set complete for
-  the goal, and does any criterion over-constrain the build?
+  ships in the same task? A consumer-less field pinned into criteria costs a
+  re-scope to remove, and its Simplicity First fix can be adding the real
+  reader. Is the criteria set complete for the goal, and does any criterion
+  over-constrain the build?
 - Design attack, dispatched by the planner against design.md before it goes
   to implement. What breaks the design's premise, and what is the reversal
   cost if its shape is wrong?

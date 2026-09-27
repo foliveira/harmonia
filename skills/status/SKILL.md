@@ -16,7 +16,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh resolve --repo .
 
 2. From the resolved workspace dir (`.harmonia/tasks/<id>/`), report:
    - the active task id;
-   - its lifecycle stage, derived by reading the artifact contract in `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` as data and matching which stage-boundary out-artifacts are present - do not hardcode a stage table (R9);
+   - its lifecycle stage, derived by reading the artifact contract in `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` as data and matching which stage-boundary out-artifacts are present - do not hardcode a stage table;
    - which markers and receipts are set: `scope.md`, `design.md`, `boundary.md`, `diff-summary.md`, `verdict.md`, `accepted`, `rejected`, `done`, `abandoned`, and the `receipts/` contents (`check-criteria.json`, `criteria-run.json`).
 
 Report only what is on disk. It composes existing mechanisms into a readout and adds no new script.

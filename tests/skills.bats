@@ -42,7 +42,7 @@ setup() {
     grep -qF '${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml' "$f"
     grep -qF '${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh' "$f"
     grep -q "do not hardcode" "$f"
-    grep -q "R9" "$f"
+    grep -qi "orchestrate only" "$f"
   done
 }
 
@@ -122,7 +122,7 @@ setup() {
   grep -qF 'workspace.sh resolve' "$f"                 # gets the active task id via resolve
   grep -qF 'core/lifecycle.yaml' "$f"                  # reads the artifact contract...
   grep -q 'do not hardcode' "$f"                       # ...as data, not a hardcoded stage table (R9)
-  grep -q 'R9' "$f"
+  grep -q 'do not hardcode a stage table' "$f"
   grep -qiE 'read-only|writes no|writes nothing' "$f"  # the core promise: it writes no marker
 }
 
