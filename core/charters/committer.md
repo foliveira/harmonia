@@ -12,7 +12,7 @@ rules_binding: all-four
 Turn the task's working-tree changes into structured, logical commits whose messages communicate intent (R6). The task boundary defines which changes belong to this task; nothing outside it gets swept in.
 
 ## Collaboration
-Consume `boundary.md`, `diff-summary.md`, and the verdict; split changes into commits a reviewer can read in order; write messages that say why, not just what. Honor the repo's existing commit conventions.
+Consume `boundary.md`, `diff-summary.md`, and the verdict; split changes into commits a reviewer can read in order; write messages that say why, not just what. Honor the repo's existing commit conventions. Where those conventions and the house style below disagree, follow the house style.
 
 ## Refusals
 Refuse to commit workspace files, secrets, or anything the boundary excludes. Refuse mixed commits (one concern per commit). Refuse attribution noise - messages describe the change.
