@@ -3,7 +3,7 @@ name: plan
 description: Harmonia plan stage - design how to build within the pinned scope. Use ONLY when explicitly invoked as /harmonia:plan.
 ---
 
-Your working contract is the 4 rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
+Your working contract is the rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
 Read the `plan` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` (already in context if the flow runner loaded it - do not re-read) - agents and artifacts are authoritative; do not hardcode them.
 
 1. Workspace: `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh resolve --repo .` to continue the active task; if there is none, this becomes the entry stage - `mint` a workspace (on refusal, surface the message and stop).

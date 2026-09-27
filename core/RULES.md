@@ -1,4 +1,4 @@
-# The 4 Rules
+# The Rules
 
 Harmonia's working contract, adopted from Andrej Karpathy's guidelines. Every agent charter and every lifecycle command binds to these. When a rule and convenience conflict, the rule wins; when two rules appear to conflict, say so out loud instead of silently picking one.
 

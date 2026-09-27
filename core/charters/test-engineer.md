@@ -3,7 +3,7 @@ role: test-engineer
 model_affinity: inherit
 consumes: [scope, design]
 produces: [diff]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Test Engineer

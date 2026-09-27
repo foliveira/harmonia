@@ -3,7 +3,7 @@ name: implement
 description: Harmonia implement stage - red-green build, tests leading, under the criteria gate. Use ONLY when explicitly invoked as /harmonia:implement.
 ---
 
-Your working contract is the 4 rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
+Your working contract is the rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
 Read the `implement` stage from `${CLAUDE_PLUGIN_ROOT}/core/lifecycle.yaml` (already in context if the flow runner loaded it - do not re-read) - agents, artifacts, gates, and the red-green `loop` definition (including `max_rounds`) are authoritative; do not hardcode them.
 
 1. Workspace: `bash ${CLAUDE_PLUGIN_ROOT}/bin/workspace.sh resolve --repo .` (later stage: never mints; on ambiguity or no-active-task, surface the script's message and stop).

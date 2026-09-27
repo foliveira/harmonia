@@ -3,7 +3,7 @@ role: doc-producer
 model_affinity: inherit
 consumes: [scope, diff-summary]
 produces: [docs]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Documentation Producer

@@ -3,7 +3,7 @@ role: knowledge-curator
 model_affinity: inherit
 consumes: [verdict, scope, diff-summary]
 produces: [learnings]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Knowledge Curator

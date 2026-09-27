@@ -3,7 +3,7 @@ role: ideator
 model_affinity: inherit
 consumes: [task-ask]
 produces: [ideas]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Ideator

@@ -3,7 +3,7 @@ role: reviewer
 model_affinity: inherit
 consumes: [scope, boundary, diff-summary, base-ref, diff, receipts, violations]
 produces: [verdict]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Reviewer (Review Lead)

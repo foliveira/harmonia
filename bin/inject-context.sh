@@ -20,7 +20,7 @@ build_payload() {
 
   echo "## Harmonia is active"
   echo
-  echo "The 4 rules bind all work in this session:"
+  echo "The rules bind all work in this session:"
   # Digest: each rule heading plus its first line, not the whole file.
   awk '/^## [0-9]\./ { sub(/^## [0-9]+\. */, ""); name=$0; getline; getline; printf "- %s - %s\n", name, $0 }' "$rules" || return 1
   echo
