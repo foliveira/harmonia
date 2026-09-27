@@ -40,6 +40,8 @@ Two things the review checks specifically:
 
 Aim for every changed line and branch to be exercised by a test that asserts behavior. Nothing measures it; the review reads the diff against the tests.
 
+Every charter and lens ends with the same house-style block, between two `<!-- harmonia:style -->` lines. `tests/style.bats` holds its check, the delimiter and the two clauses exempt from the word cap. That check reads the charters and lenses only. In a charter or lens, never reword a phrase a test reads. `tests/roster.bats` holds most of those pins, and `tests/core.bats` holds the rest.
+
 ## Cutting a release
 
 Installs are pinned to a commit, so a release is four steps and the order matters.
