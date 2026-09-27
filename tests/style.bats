@@ -12,8 +12,8 @@
 #   3. the block is fit to be carried - inside its word budget, stating the same
 #      cap this file enforces, and carrying no phrase the suite greps out of a
 #      converted file;
-#   4. the two cap exemptions still resolve, each to one whole clause no longer
-#      than its ceiling, and are still exactly two;
+#   4. the two cap exemptions still resolve, each to the one sentence it pins
+#      verbatim, and are still exactly two;
 #   5. the scan itself reds the shapes that once hid a long sentence from it and
 #      passes the compliant shapes it once over-counted.
 #
@@ -25,10 +25,11 @@
 # anchor per over-cap sentence turns every criterion green with the charters
 # byte-identical to the base ref.
 #
-# The grammar-card cell at 17a80ff:tests/skills.bats:562-571, retired with the
-# consent machinery, is the model for cell 2 (a delimited card, compared by
-# digest over five NAMED files), and tests/context-budget.bats:29-35,85-89 for
-# cell 3's ceiling on replicated prompt text.
+# The grammar-card cell at 17a80ff:tests/skills.bats:562-571, removed in
+# dcf4610 with the coverage gate, is the model for cell 2 (a delimited card,
+# compared by digest over five NAMED files), and
+# tests/context-budget.bats:29-35,85-89 for cell 3's ceiling on replicated
+# prompt text.
 
 CAP=25       # words; STE's descriptive sentence cap, one cap for the whole set
 BUDGET=165   # words the block may cost each of the seventeen files it lands in
@@ -57,22 +58,27 @@ FILES=(
 )
 
 # The two protected clauses: anti-forgery rules whose causal binding IS the
-# guard, so they may be shortened but not split, and they sit over the cap by
-# exemption. `grep -rn falsification bin/` returns nothing - the prose is the
-# entire guard. Anchored on a distinctive substring and never on a line number,
-# because a one-pass rewrite moves every line number in the file it edits.
+# guard, so they sit over the cap by exemption. `grep -rn falsification bin/`
+# returns nothing - the prose is the entire guard. Pinned verbatim and never on
+# a line number, because a one-pass rewrite moves every line number in the file
+# it edits.
 #
-#   <path> :: <anchor> :: <bound> :: <ceiling>
+#   <path> :: <the sentence as written, backtick spans and its stop included>
 #
-# The anchor names the clause's consequence and the bound names the rule it
-# binds; both must sit in the one sentence, or the clause was split. The ceiling
-# is the clause's word count today, so the exemption cannot grow into a place to
-# park text the cap would refuse anywhere else. Matching runs against the masked
-# sentence, where every backtick span has become `X`, so a phrase holding a
-# backtick is malformed rather than unlucky.
+# Verbatim, because anything looser exempted a decoy. An anchor phrase matched a
+# new sentence built to hold it while the clause itself was split in three; an
+# anchor plus a bound phrase plus a word ceiling matched the same decoy. So the
+# exemption names one sentence and exempts nothing else: a clause that is
+# shortened, grown or split matches no entry, and cell 4 reds until this list
+# says the new text. That edit is on the hash-locked side of tests/, which is
+# the point. The spans and the stop are compared too. regression.md's guard is
+# its span: masked, `grep -c` could become `wc -l` and the pin still matched,
+# and `forge one.` could become `forge one?`. And only a paragraph of prose
+# outside the block matches. A clause moved into a comment, a heading, the
+# frontmatter or the block is no longer read as the guard.
 EXEMPT=(
-  "core/lenses/regression.md :: free text must not be able to forge one :: never an embedded newline :: 33"
-  "core/lenses/adversarial.md :: an embedded newline could forge a countable line :: single-line only :: 27"
+  "core/lenses/regression.md :: One line per hit or clean entry; every line single-line, never an embedded newline - the tally counts these anchored at line start (\`grep -c '^- regression:hit '\`), and free text must not be able to forge one."
+  "core/lenses/adversarial.md :: The seat decides each finding and appends to the workspace's \`falsification.md\`, one event per line, free text single-line only - an embedded newline could forge a countable line:"
 )
 
 setup() {
@@ -107,86 +113,167 @@ roster_tap() { # roster_tap <tree> -> "PASS|FAIL <cell name>", one per cell
 # Three rules the block leaves unstated because no writer is surprised by them:
 # the abbreviations match in either case, so `E.g.` is `e.g.`; a word is a token
 # holding a letter or a digit, so a dash between clauses is not one; and a
-# heading, a table cell or a one-line comment is a unit scanned on its own.
+# heading that starts a block, a one-line comment anywhere, and every line of
+# the frontmatter is a unit scanned on its own. Frontmatter is scanned because
+# agents read the file raw (agents/*.md), so a sentence parked there is read.
+# A frontmatter line is a unit only while it is one key and a value YAML cannot
+# join to another line as one string: YAML does that to a wrapped, folded or
+# quoted value, and a raw reader reads it as one sentence. Any other
+# frontmatter line is refused. A
+# `#` line inside a paragraph, or one with no space after the hashes, is more
+# of the paragraph: a hard wrap that lands on `#42` is still the sentence it
+# was wrapped from, and scanning it apart cut that sentence in two.
 #
 # A structural line is scanned apart. It does NOT end a paragraph. Only a blank
-# line does. Flushing on a structural line makes every such line a sentence
-# terminator the writer places at will: thirty `<!-- -->` lines - which render
-# as nothing - turned all six criteria green with a word-for-word identical
-# prose stream, and the block itself puts two HTML comments into files that had
-# none. Dropping the line instead hid whatever it carried: a 30-word heading,
-# table cell or comment was never counted at all.
+# line, a list marker or the sentinel does. Flushing on a structural line makes
+# every such line a sentence terminator the writer places at will: thirty
+# `<!-- -->` lines - which render as nothing - turned all six criteria green
+# with a word-for-word identical prose stream, and the block itself puts two
+# HTML comments into files that had none. Dropping the line instead hid
+# whatever it carried: a 30-word heading or comment was never counted at all.
+# The sentinel is the exception because the block is a region of its own: not
+# flushing there let a lone `***` above the block run into the block's heading
+# and count as the file's one sentence of prose.
 #
-# Two shapes fail closed, because the scanner cannot tell what the writer meant.
-# A list marker directly under prose that has not finished - no terminator, no
-# colon - is either a new item or a hard wrap that happened to land on `- ` or
-# `1. `, and reading it as an item splits one sentence in two. A comment that
-# does not close on its own line has a first line no rule reads.
+# A list marker under prose that has not finished - no terminator, no colon,
+# after the spans and abbreviations are shielded - is WRAP, unless that prose is
+# an item at the same indent. Two bullets at one level are two units, and the
+# lenses' report grammars are bullets with no full stop. A marker at any other
+# depth under unfinished prose is a hard wrap that landed on `- ` or `1. `, or a
+# child under a parent that has not ended; either way, reading it as an item
+# splits one sentence in two. So a parent ends in a colon or a full stop before
+# its children; none has children today.
+#
+# What the scan does not read, it refuses, one UNSCANNED line per offence, and
+# cell 1 reds on any. Two review rounds patched one shape at a time - fence
+# grammar, no-break spaces, em dashes, table cells - and each patch opened the
+# next shape one hop out, and each round's attack pass on the refusals found
+# more. So the scan promises less and keeps it. Refused:
+#
+#   - any byte outside printable ASCII and tab, which covers every Unicode
+#     space, dash and look-alike, and CRLF;
+#   - a frontmatter line that is not one key and a one-line value: a line
+#     that is not `key: value`, which covers a wrapped or `|`/`>` value, and
+#     a value holding a quote, a brace or a list that does not close on the
+#     line;
+#   - a character reference such as `&nbsp;` or `&#32;`, which is that same
+#     space in ASCII clothing;
+#   - any line that opens a code fence, backtick or tilde, indented, quoted or
+#     not - no fence state exists, so no fence can hide the lines after it;
+#   - any line indented four spaces or a tab, which CommonMark may read as a
+#     code block whose backticks the scan would pair with the prose around it;
+#   - any table row - no cell splitting exists, so no pipe rule can disagree
+#     with GFM's;
+#   - a comment that does not close on its own line, or that holds a second
+#     `--`, or that sits inside prose, whose text no rule reads whole;
+#   - any HTML tag, since `<script>` or `<pre>` opens a raw block that runs
+#     past blank lines to its closing tag; a link, image or reference, whose
+#     destination, title or label a renderer hides; and a processing
+#     instruction, declaration or CDATA section. Each can carry a full stop
+#     the reader never sees;
+#   - an escaped, doubled, unpaired or angle-bracketed backtick, each of which
+#     breaks the span pairing, and a mispaired span swallows the words between.
+#
+# Every structural test runs on the raw line. Nothing is normalised first, so
+# no normalisation can turn a look-alike into the sentinel or a line of odd
+# spaces into a blank one. None of the refused shapes occurs in the seventeen
+# files; the first charter that wants a fence or a table is a test change here,
+# and that is the point.
+#
+# What the scan does not claim. A full stop inside brackets or quotes before a
+# space ends a sentence by the block's own rule, so `(x.)` dropped into the
+# middle of one splits it, and a span of any length is one word. Both are
+# visible in the raw file and in the diff. The scan catches overruns and the
+# shapes a writer would not notice; deliberate, visible obfuscation is what the
+# acceptance read in scope.md exists for.
 #
 # No field read from a file is coerced to a number anywhere below; the word
 # count is a loop counter compared to a literal. awk coerces a field beginning
 # `nan` to NaN and NaN fails both halves of a range test, so a numeric bound is
-# not a validity check. The ceilings are coerced, but they come from EXEMPT and
-# are checked against ^[0-9]+$ first.
+# not a validity check.
 #
 # Emits: OVER <file>:<line>: <n> words: <sentence>   over the cap, not exempt
 #        WRAP <file>:<line>: <paragraph so far>      list marker under unfinished prose
-#        UNSCANNED <file>:<line>: <why>              a line the scan cannot read
-#        SPLIT <file>:<line>: <bound> :: <sentence>  anchor without its bound
-#        GROWN <file>:<line>: <n> words, ...         exempt, past its ceiling
+#        UNSCANNED <file>:<line>: <why>              a refused line or paragraph
 #        SCANNED <file> <n> <own>                    sentences read per file, and
 #                                                    how many sit outside the block
-#        ANCHOR <n> <path> :: <anchor>               sentences an entry matched
+#        ANCHOR <n> <path> :: <sentence>             sentences equal to an entry
 #        MALFORMED <entry>                           unparseable exemption entry
 cap_scan() { # cap_scan <file>...
   # Never with an empty argument list: awk would read stdin and the cell would
   # hang rather than fail.
   [ "$#" -gt 0 ] || { echo "the scan was handed no files" >&2; return 1; }
   awk -v cap="$CAP" -v sent="$SENT" -v ex="$(printf '%s\n' "${EXEMPT[@]}")" '
-    BEGIN { P = "\001"; CL = "[]\"\047)*_]*"   # P shields a dot; CL is the closing marks
+    BEGIN { P = "\001"; Q = "\002"; CL = "[]\"\047)*_]*"   # P shields a dot; CL is the closing marks
       m = split(ex, L, "\n")
       for (i = 1; i <= m; i++) { if (L[i] == "") continue
         k = split(L[i], F, / :: /)
-        if (k != 4 || F[1] == "" || F[2] == "" || F[3] == "" || F[2] F[3] ~ /`/ || F[4] !~ /^[0-9]+$/) { printf "MALFORMED %s\n", L[i]; continue }
-        ne++; ef[ne] = F[1]; ea[ne] = tolower(F[2]); eb[ne] = tolower(F[3]); eg[ne] = F[4] + 0; ec[ne] = 0 } }
-    { sub(/\r$/, "") }                                    # or CRLF hides the frontmatter and the sentinels
-    FNR == 1 { flush(); fm = ($0 == "---"); fence = 0; inblk = 0 }   # or an unclosed fence hides the next file
-    fm { if (FNR > 1 && $0 == "---") fm = 0; next }
-    /^```/ { fence = !fence; next }
-    fence { next }
-    $0 == sent { inblk = !inblk; next }                   # the block is prose too, and counted apart
-    /^[[:space:]]*$/ { flush(); next }                    # only a blank line ends a paragraph
-    /^#/ { t = $0; sub(/^#+[ \t]*/, "", t); sub(/[ \t]+#+[ \t]*$/, "", t); scan(t, FILENAME, FNR, inblk, 0); next }
-    /^<!--/ { if ($0 !~ /-->[ \t]*$/) { printf "UNSCANNED %s:%d: a comment that does not close on its own line\n", FILENAME, FNR; next }
+        if (k != 2 || F[1] == "" || F[2] == "") { printf "MALFORMED %s\n", L[i]; continue }
+        ne++; ef[ne] = F[1]; et[ne] = F[2]; ec[ne] = 0 } }
+    FNR == 1 { flush(); fm = ($0 == "---"); inblk = 0 }
+    /[^\t -~]/ { printf "UNSCANNED %s:%d: a byte outside printable ASCII, which this scan does not read\n", FILENAME, FNR; next }
+    fm { if (FNR > 1 && $0 == "---") { fm = 0; next }
+      if (FNR > 1 && !onekey($0)) { printf "UNSCANNED %s:%d: a frontmatter line that is not one key and a one-line value, which YAML may join to another line\n", FILENAME, FNR; next }
+      scan($0, FILENAME, FNR, 0, 0); next }               # every frontmatter line is a unit: agents read it
+    /^[ \t>]*(```|~~~)/ { printf "UNSCANNED %s:%d: a code fence, which this scan does not read\n", FILENAME, FNR; next }
+    /^(    |\t)/ { printf "UNSCANNED %s:%d: an indented line, which may be a code block\n", FILENAME, FNR; next }
+    $0 == sent { flush(); inblk = !inblk; next }          # the block is prose too, and counted apart
+    /^[[:space:]]*$/ { flush(); next }                    # a blank line ends a paragraph
+    /^[[:space:]]*\|/ { printf "UNSCANNED %s:%d: a table row, which this scan does not read\n", FILENAME, FNR; next }
+    para == "" && /^#[#]?[#]?[#]?[#]?[#]?([ \t]|$)/ { t = $0; sub(/^#+[ \t]*/, "", t); sub(/[ \t]+#+[ \t]*$/, "", t); scan(t, FILENAME, FNR, inblk, 0); next }
+    /^<!--/ { if ($0 !~ /^<!--([^-]|-[^-])*-->[ \t]*$/) { printf "UNSCANNED %s:%d: a comment that does not close on its own line, or holds another\n", FILENAME, FNR; next }
       t = $0; sub(/^<!--/, "", t); sub(/-->[ \t]*$/, "", t); scan(t, FILENAME, FNR, inblk, 0); next }
-    /^[[:space:]]*\|/ { t = $0; gsub(/`[^`]*`/, "`X`", t); k = split(t, C, /\|/)          # masked first: a span may hold a pipe
-      for (i = 1; i <= k; i++) scan(C[i], FILENAME, FNR, inblk, 0); next }
-    /^[[:space:]]*([-*]|[0-9]+\.)[[:space:]]/ {
-      if (para != "" && !plist && para !~ ("[.!?:]" CL "$")) printf "WRAP %s:%d: %s\n", FILENAME, FNR, para
+    /^[[:space:]]*([-*]|[0-9]+\.)[[:space:]]/ { ind = match($0, /[^[:space:]]/) - 1
+      if (para != "" && !ended(para) && !(plist && ind == pind)) printf "WRAP %s:%d: %s\n", FILENAME, FNR, para
       flush(); sub(/^[[:space:]]*([-*]|[0-9]+\.)[[:space:]]+/, ""); li = 1 }
     { sub(/^[[:space:]]*>[[:space:]]?/, ""); sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, "")
-      if (para == "") { pf = FILENAME; pl = FNR; pb = inblk; plist = li }
+      if (para == "") { pf = FILENAME; pl = FNR; pb = inblk; plist = li; pind = ind }
       li = 0; para = (para == "" ? $0 : para " " $0) }
     END { flush()
       for (f in seen) printf "SCANNED %s %d %d\n", f, seen[f], own[f] + 0
-      for (i = 1; i <= ne; i++) printf "ANCHOR %d %s :: %s\n", ec[i], ef[i], ea[i] }
+      for (i = 1; i <= ne; i++) printf "ANCHOR %d %s :: %s\n", ec[i], ef[i], et[i] }
     function flush() { if (para == "") return; scan(para, pf, pl, pb, 1); para = "" }
-    function scan(t, f, l, b, prose,   k, A, i, s, w, W, x, n, hit) {
-      if (!(f in seen)) seen[f] = 0
-      gsub(/`[^`]*`/, "`X`", t); gsub(/\.\.\./, P P P, t)
+    function onekey(t) {   # 1 for `key: value` whose value YAML cannot join to another line as one string
+      if (t !~ /^[A-Za-z_][A-Za-z0-9_-]*:([ \t]|$)/) return 0
+      sub(/^[^:]*:[ \t]*/, "", t); sub(/^\[[^]["\047]*\][ \t]*$/, "", t)   # a one-line list is plain
+      return t !~ /[[{"\047]/ }                          # a quote, a brace or an open list may run on
+    function shield(t,   o, n) {   # spans to `X`, kept in SP in order; a dot that ends nothing to P
+      o = ""; n = 0
+      while (match(t, /`[^`]*`/)) { SP[++n] = substr(t, RSTART, RLENGTH); o = o substr(t, 1, RSTART - 1) "`X`"; t = substr(t, RSTART + RLENGTH) }
+      t = o t; gsub(/\.\.\./, P P P, t)
       gsub(/(^|[^[:alnum:]])([Ee]\.[Gg]|[Ii]\.[Ee]|[Ee][Tt][Cc]|[Cc][Ff]|[Vv][Ss]|[Aa][Pp][Pp][Rr][Oo][Xx])\./, "&" P, t); gsub("\\." P, P, t)
-      t = t " "; k = split(t, A, "[.!?]" CL "[ \t]+")
+      return t }
+    function unmask(s,   r) {   # each `X` back to the span it stands for, in order
+      r = ""; while (match(s, /`X`/)) { r = r substr(s, 1, RSTART - 1) SP[++sj]; s = substr(s, RSTART + RLENGTH) }
+      return r s }
+    function ended(t) { return shield(t) ~ ("[.!?:]" CL "$") }
+    function ticks(t, f, l) {   # 1 when the backticks in t cannot be paired into spans
+      if (index(t, "\\`")) { printf "UNSCANNED %s:%d: an escaped backtick, which this scan does not read\n", f, l; return 1 }
+      if (t ~ /<[^>]*`/) { printf "UNSCANNED %s:%d: a backtick inside angle brackets, which this scan does not read\n", f, l; return 1 }
+      if (index(t, "``")) { printf "UNSCANNED %s:%d: a double backtick, which this scan does not pair\n", f, l; return 1 }
+      if (gsub(/`/, "`", t) % 2) { printf "UNSCANNED %s:%d: an unpaired backtick, which would swallow the words after it\n", f, l; return 1 }
+      return 0 }
+    function markup(t, f, l) {   # 1 when the shielded text holds markup the scan does not read
+      if (index(t, "<!--") || index(t, "-->")) { printf "UNSCANNED %s:%d: an HTML comment inside prose, which this scan does not read\n", f, l; return 1 }
+      if (t ~ /<[?!]/) { printf "UNSCANNED %s:%d: a processing instruction, declaration or CDATA section, which this scan does not read\n", f, l; return 1 }
+      if (t ~ /<\/?[a-zA-Z]/) { printf "UNSCANNED %s:%d: an HTML tag, with or without attributes, which this scan does not read\n", f, l; return 1 }
+      if (t ~ /&[#[:alnum:]]+;/) { printf "UNSCANNED %s:%d: a character reference, which this scan does not read\n", f, l; return 1 }
+      if (t ~ /\]\(|\]\[|\]:/) { printf "UNSCANNED %s:%d: a link, image or reference, whose destination, title or label this scan does not read\n", f, l; return 1 }
+      return 0 }
+    function scan(t, f, l, b, prose,   k, A, i, s, v, w, W, x, n, hit) {
+      if (!(f in seen)) seen[f] = 0
+      if (ticks(t, f, l)) return
+      t = shield(t); sj = 0
+      if (markup(t, f, l)) return
+      t = t " "; gsub("[.!?]" CL "[ \t]+", "&" Q, t); k = split(t, A, Q)
       for (i = 1; i <= k; i++) {
-        s = A[i]; gsub(P, ".", s); sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s)
+        s = A[i]; gsub(P, ".", s); sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); v = unmask(s)
         w = 0; n = split(s, W, /[ \t]+/); for (x = 1; x <= n; x++) if (W[x] ~ /[[:alnum:]]/) w++
         if (w == 0) continue                              # or a lone `---` passes for prose
         seen[f]++; if (prose && !b) own[f]++
         hit = 0
-        for (x = 1; x <= ne; x++) if (ef[x] == f && index(tolower(s), ea[x])) { ec[x]++   # a shortened clause may open on either phrase
-          if (!index(tolower(s), eb[x])) { printf "SPLIT %s:%d: %s :: %s\n", f, l, eb[x], s; continue }
-          hit = 1
-          if (w > eg[x]) printf "GROWN %s:%d: %d words, past its %d-word ceiling: %s\n", f, l, w, eg[x], s }
-        if (!hit && w > cap) printf "OVER %s:%d: %d words: %s\n", f, l, w, s } }
+        for (x = 1; x <= ne; x++) if (prose && !b && ef[x] == f && v == et[x]) { ec[x]++; hit = 1 }   # verbatim, in prose, or it exempts a decoy
+        if (!hit && w > cap) printf "OVER %s:%d: %d words: %s\n", f, l, w, v } }
   ' "$@" < /dev/null
 }
 
@@ -226,7 +313,7 @@ cap_scan() { # cap_scan <file>...
     sed -n 's/^OVER //p' "$scan" | sort -t: -k1,1 -k2,2n
     echo "--"
     echo "$n sentences run past the $CAP-word cap, listed above as"
-    echo "<file>:<line of the paragraph they sit in>: <words>: <sentence, backtick spans masked to \`X\`>"
+    echo "<file>:<line of the paragraph they sit in>: <words>: <sentence>"
     bad=1
   fi
 
@@ -415,9 +502,9 @@ cap_scan() { # cap_scan <file>...
 
 @test "the cap exemptions still name what they exempt" {
   # GREEN ON ARRIVAL, and correctly so - the same shape tests/roster.bats:245-259
-  # writes out. Both anchors resolve and both protected clauses are whole and at
-  # their ceilings at the base ref, so this cell is a regression guard on a
-  # property that is true before the round starts, not a gap in it.
+  # writes out. Both entries match their clause verbatim at the base ref, so this
+  # cell is a regression guard on a property that is true before the round
+  # starts, not a gap in it.
   local line n f a scan="$BATS_TEST_TMPDIR/scan" want got bad=0
 
   # The exempt set is these two paths, named rather than counted, one entry
@@ -436,41 +523,33 @@ cap_scan() { # cap_scan <file>...
   cap_scan "${FILES[@]}" > "$scan"
 
   while IFS= read -r line; do
-    echo "malformed exemption entry, want '<repo-relative path> :: <anchor> :: <bound> :: <ceiling>', phrases without a backtick: ${line#MALFORMED }"
+    echo "malformed exemption entry, want '<repo-relative path> :: <sentence>': ${line#MALFORMED }"
     bad=1
   done < <(grep '^MALFORMED ' "$scan" || true)
 
-  # An entry whose anchor matches nothing is a failure, not a no-op: a stale
-  # exemption re-exposes the clause it was written to protect, and a stale
-  # citation has been a finding in this repo twice already.
+  # One ANCHOR line per entry, or the loop below reads nothing and passes. A
+  # scan that stopped reporting anchors left all five cells green.
+  n="$(grep -c '^ANCHOR ' "$scan" || true)"
+  if [ "$n" -ne "${#EXEMPT[@]}" ]; then
+    echo "the scan reported $n ANCHOR lines for ${#EXEMPT[@]} exemption entries"
+    bad=1
+  fi
+
+  # An entry that matches nothing is a failure, not a no-op: the clause was
+  # shortened, grown or split, and whichever it was, the text the exemption was
+  # granted for is gone. A stale citation has been a finding in this repo twice
+  # already. Two matches would mean the clause appears twice, which is not the
+  # file this cell knows either.
   while read -r _ n f _ a; do
     if [ "$n" -eq 0 ]; then
-      echo "no sentence in $f matches the exemption anchor '$a'"
+      echo "no sentence in $f is exactly the pinned clause, so it was shortened, grown or split; if that was meant, pin the new text here:"
+      echo "  $a"
       bad=1
     elif [ "$n" -ne 1 ]; then
-      echo "$n sentences in $f match the exemption anchor '$a'; an anchor that exempts more than one sentence exempts an unknown one"
+      echo "$n sentences in $f are exactly the pinned clause; one is the guard and the others are unknown"
       bad=1
     fi
   done < <(grep '^ANCHOR ' "$scan" || true)
-
-  # A split reds. Without the bound an anchor cannot detect the split it exists
-  # to prevent: the protected clause was cut into two independent statements
-  # with the anchor phrase kept verbatim, every cell stayed green, and the causal
-  # binding the guard IS was gone. Redding any exempt sentence that dropped under
-  # the cap caught that too, and also redded the shortening the clause is
-  # allowed.
-  while IFS= read -r line; do
-    echo "the exemption anchor sits in a sentence without its bound phrase, so the clause was split: ${line#SPLIT }"
-    bad=1
-  done < <(grep '^SPLIT ' "$scan" || true)
-
-  # Growth reds. An exempt sentence with no ceiling is the one place in the
-  # seventeen files where any amount of text passes the cap.
-  while IFS= read -r line; do
-    echo "an exempt clause grew: ${line#GROWN }"
-    echo "  the clause may be shortened, never lengthened; the ceiling is its word count when the exemption was granted"
-    bad=1
-  done < <(grep '^GROWN ' "$scan" || true)
 
   [ "$bad" -eq 0 ]
 }
@@ -481,14 +560,22 @@ cap_scan() { # cap_scan <file>...
   # every line. These fixtures can. Each flag case hides one long sentence
   # behind a shape the splitter once misread; each pass case is compliant prose
   # it once over-counted. A case that no longer behaves names itself.
-  local fx="$BATS_TEST_TMPDIR/fx" scan="$BATS_TEST_TMPDIR/fx.scan" c kind f n bad=0
-  local EXEMPT=(
-    "split.md :: could forge a line :: never a newline :: 30"
-    "grown.md :: could forge a line :: never a newline :: 30"
-    "short.md :: could forge a line :: never a newline :: 30"
-    "whole.md :: could forge a line :: never a newline :: 30"
-  )
+  local fx="$BATS_TEST_TMPDIR/fx" scan="$BATS_TEST_TMPDIR/fx.scan" c kind f n pat clause sclause bad=0
   words() { seq -f 'w%g' -s ' ' "$1" "$2"; }
+  clause="$(words 1 20) never a newline, so free text could forge a line."
+  sclause="$(words 1 20) never a newline, so \`grep -c x\` could not forge a line."
+  local EXEMPT=(
+    "whole.md :: $clause"
+    "split.md :: $clause"
+    "grown.md :: $clause"
+    "short.md :: $clause"
+    "decoy.md :: $clause"
+    "parked.md :: $clause"
+    "term.md :: $clause"
+    "span-order.md :: $sclause"
+    "span.md :: $sclause"
+    "span-swap.md :: $sclause"
+  )
   mkdir -p "$fx" && cd "$fx" || return 1
 
   # Flag cases.
@@ -497,12 +584,69 @@ cap_scan() { # cap_scan <file>...
   printf '%s... %s.\n' "$(words 1 15)" "$(words 16 30)" > ellipsis.md
   printf '%s E.g. %s.\n' "$(words 1 14)" "$(words 15 29)" > eg.md
   printf '# %s\n' "$(words 1 30)" > heading.md
-  printf '| a | b |\n|---|---|\n| %s `x|y` %s | c |\n' "$(words 1 15)" "$(words 16 29)" > table.md
+  printf '| a | b |\n|---|---|\n| %s | c |\n' "$(words 1 30)" > table.md
   printf '<!-- %s -->\n' "$(words 1 30)" > comment.md
   printf '<!-- %s\n-->\n' "$(words 1 30)" > comment-open.md
-  printf '%s\n<!-- c -->\n# h\n| t |\n%s.\n' "$(words 1 15)" "$(words 16 30)" > interrupted.md
+  printf '%s\n<!-- c -->\n# h\n%s.\n' "$(words 1 15)" "$(words 16 30)" > interrupted.md   # 31: the heading joins, the comment does not
+  printf '%s\n#%s.\n' "$(words 1 15)" "$(words 16 30)" > wrapped-hash.md
+  printf '#%s\n%s.\n' "$(words 1 15)" "$(words 16 30)" > hash-first.md
+  printf '%s\n| %s.\n' "$(words 1 15)" "$(words 16 30)" > wrapped-pipe.md
+  printf '```x``` w1\n\n%s.\n' "$(words 1 30)" > inline-fence.md
+  printf 'Lead.\n\n```sh\n%s.\n' "$(words 1 30)" > open-fence.md
+  printf '````\n```\n````\n\n%s.\n\n```sh\nx\n```\n' "$(words 1 30)" > phantom-fence.md
+  printf '~~~\n%s.\n~~~\n' "$(words 1 30)" > tilde.md
+  printf '%s %s.\n' "$(words 1 15)" "$(words 16 30 | sed 's/ /\xc2\xa0/g')" > nbsp.md
+  printf '%s %s.\n' "$(words 1 15)" "$(words 16 30 | sed 's/ /\xe2\x80\x94/g')" > emdash.md
+  printf '%s %s.\n' "$(words 1 15)" "$(words 16 30 | sed 's/ /\xe2\x80\xaf/g')" > narrow-space.md
+  printf -- '---\r\nrole: x\r\n---\r\n\r\n%s.\r\n' "$(words 1 20)" > crlf.md
+  printf '``a ` b`` %s `c.\n' "$(words 1 30)" > double-tick.md   # even count, and still mispaired
+  printf 'w1 ` %s `x`.\n' "$(words 2 30)" > odd-tick.md
+  printf 'w1 \\` %s \\` w31.\n' "$(words 2 30)" > escaped-tick.md
+  printf '<x`y> %s `z.\n' "$(words 1 30)" > autolink.md          # even count, and still mispaired
   printf '%s never a newline. So free text could forge a line.\n' "$(words 1 20)" > split.md
-  printf '%s never a newline, so free text could forge a line.\n' "$(words 1 21)" > grown.md
+  printf '%s, %s.\n' "${clause%.}" "$(words 21 26)" > grown.md                # the pinned text, and more
+  printf '%s\n\nNo newline may be embedded, since %s.\n' "$clause" "$(words 1 24)" > decoy.md
+  printf '%s\n' "$clause" > copy.md                                     # the clause, in a file no entry names
+  printf -- '---\nnote: Parked. %s\n---\n\n<!-- %s -->\n\n# %s\n\nLead.\n\n%s\n%s\n%s\n' "$clause" "$clause" "$clause" "$SENT" "$clause" "$SENT" > parked.md   # the clause, only where no reader sees it as the guard
+  printf '%s?\n' "${clause%.}" > term.md                                  # the pinned text with its stop changed
+  printf 'Count with `grep -c x`. %s\n' "${sclause/grep -c x/wc -l}" > span-order.md   # the pinned span sits in the sentence before
+  printf '%s\n' "${sclause/grep -c x/wc -l}" > span-swap.md              # the pinned text with its span changed
+  printf '%s %s&nbsp;%s.\n' "$(words 1 15)" w16 "$(words 17 30)" > entity.md
+  printf 'Lead.\n\n    grep -c x\n%s.\n' "$(words 1 30)" > indented.md
+  printf '> ~~~\n> x\n> ~~~\n%s.\n' "$(words 1 30)" > quoted-fence.md
+  printf '%s <!-- x --> %s.\n' "$(words 1 15)" "$(words 16 30)" > inline-comment.md
+  printf '%s\n<!-- --> %s <!-- -->\n' "$(words 1 15)" "$(words 16 30)" > two-comments.md
+  printf '%s <a title="Why?"> %s.\n' "$(words 1 15)" "$(words 16 30)" > tag-attr.md
+  printf '%s [x](y "Read it.") %s.\n' "$(words 1 15)" "$(words 16 30)" > link-title.md
+  printf -- '---\nrole: x\nnote: %s\n---\n\nLead.\n' "$(words 1 29)" > frontmatter.md
+  printf -- '---\nnote: %s\n  %s\n---\n\nLead.\n' "$(words 1 14)" "$(words 15 28)" > fm-wrap.md   # YAML reads one 28-word value
+  printf -- '---\nnote: "%s\nnext: %s"\n---\n\nLead.\n' "$(words 1 14)" "$(words 15 28)" > fm-quoted.md
+  printf -- "---\nnote: '%s\nnext: %s'\n---\n\nLead.\n" "$(words 1 14)" "$(words 15 28)" > fm-single.md
+  printf -- '---\nnote: {a: %s,\nnext: %s}\n---\n\nLead.\n' "$(words 1 14)" "$(words 15 28)" > fm-brace.md
+  printf -- '---\nnote: [%s,\nnext: %s]\n---\n\nLead.\n' "$(words 1 14)" "$(words 15 28)" > fm-list.md
+  printf -- '---\nnote: [a, "%s]\nnext: [%s", b]\n---\n\nLead.\n' "$(words 1 14)" "$(words 15 28)" > fm-dq-list.md   # the ] sits inside an open string
+  printf -- "---\nnote: [a, '%s]\nnext: [%s', b]\n---\n\nLead.\n" "$(words 1 14)" "$(words 15 28)" > fm-sq-list.md
+  printf -- '---\nnote: >\n  a: %s\n  b: %s\n---\n\nLead.\n' "$(words 1 13)" "$(words 14 28)" > fm-folded.md   # key-shaped body lines, one folded value
+  printf -- '---\nrole: x\n# %s\n---\n\nLead.\n' "$(words 1 30)" > fm-comment.md
+  printf -- '---\nnote:%s\nnext:%s\n---\n\nLead.\n' "$(words 1 14)" "$(words 15 28)" > fm-nosep.md   # no key at all: YAML reads one 28-word string
+  printf -- '---\nnote: %s %s\n---\n\nLead.\n' "$(words 1 15)" "$(words 16 30 | sed 's/ /\xc2\xa0/g')" > fm-nbsp.md   # refused before the frontmatter rule reads it
+  printf '%s [the spec](https://example.com/v1.) %s.\n' "$(words 1 20)" "$(words 21 40)" > link-dest.md
+  printf '%s [the spec][v1.] %s.\n' "$(words 1 20)" "$(words 21 40)" > ref-label.md
+  printf 'Lead.\n\n[v1]: /x "%s."\n' "$(words 1 10)" > ref-def.md
+  printf '%s <?x . ?> %s.\n' "$(words 1 15)" "$(words 16 30)" > pi.md
+  printf '%s <!X . > %s.\n' "$(words 1 15)" "$(words 16 30)" > decl.md
+  printf '%s <![CDATA[ . ]]> %s.\n' "$(words 1 15)" "$(words 16 30)" > cdata.md
+  printf '%s <? . ?> %s.\n' "$(words 1 15)" "$(words 16 30)" > pi-space.md
+  printf '> Lead.\n>\n> [v1]: /x "%s. %s"\n' "$(words 1 15)" "$(words 16 30)" > quoted-def.md   # a definition after a quoted blank line
+  printf '<script>\n\n%s.\n' "$(words 1 10)" > tag.md   # a raw block that runs past blank lines, and never closes
+  printf '%s </b> %s.\n' "$(words 1 15)" "$(words 16 30)" > close-tag.md
+  printf '####### %s\n%s.\n' "$(words 1 15)" "$(words 16 30)" > seven-hash.md   # seven hashes is not a heading
+  printf '%s (e.g. %s).\n' "$(words 1 14)" "$(words 15 29)" > paren-eg.md
+  printf '   ~~~\n%s.\n   ~~~\n' "$(words 1 30)" > indented-fence.md
+  printf 'Lead.\n\n\tgrep -c x\n%s.\n' "$(words 1 30)" > tab-indent.md
+  printf -- '---\nrole: x\n---\n\n***\n%s\n## House style\n\nText here.\n%s\n' "$SENT" "$SENT" > gutted.md
+  printf -- '- %s\n  %s\n  - %s.\n' "$(words 1 15)" "$(words 16 20)" "$(words 21 30)" > list-wrap.md   # a deeper marker under an unfinished item; four spaces would be refused as indented
+  printf '%s etc.\n- %s.\n' "$(words 1 15)" "$(words 16 30)" > wrap-etc.md
 
   # Pass cases.
   printf '%s.\n' "$(words 1 25)" > at-cap.md
@@ -510,28 +654,64 @@ cap_scan() { # cap_scan <file>...
   printf '(%s.) %s.\n' "$(words 1 15)" "$(words 16 30)" > paren.md
   printf '**%s.** %s.\n' "$(words 1 15)" "$(words 16 30)" > bold.md
   printf '%s - %s - %s.\n' "$(words 1 10)" "$(words 11 20)" "$(words 21 25)" > dash.md
-  printf -- '---\r\ndescription: %s\r\n---\r\n\r\n%s.\r\n' "$(words 1 30)" "$(words 1 20)" > crlf.md
-  printf 'A lead:\n- %s\n  %s\n- %s.\n' "$(words 1 10)" "$(words 11 20)" "$(words 1 20)" > list.md
-  printf 'Never a newline, so free text could forge a line.\n' > short.md
-  printf '%s never a newline, so free text could forge a line.\n' "$(words 1 20)" > whole.md
-  printf -- '---\nrole: x\n---\n\n---\n\n- -\n\n| --- |\n' > wordless.md
+  printf 'A lead:\n- %s\n  %s\n- %s.\n' "$(words 1 10)" "$(words 11 20)" "$(words 1 20)" > list.md   # a wrapped item with no stop, then a sibling
+  printf 'Never a newline, so free text could forge a line.\n' > short.md   # shortened, and the pin not updated
+  printf '%s\n' "$clause" > whole.md
+  printf '%s\n' "$sclause" > span.md
+  printf -- '---\nrole: x\n---\n\n---\n\n- -\n' > wordless.md
+  printf -- '- %s\n- %s\n' "$(words 1 10)" "$(words 11 20)" > siblings.md   # two bullets, no full stop, one level
+  printf -- '---\nconsumes: [a, b-c]\n---\n\n%s.\n' "$(words 1 25)" > fm-list-ok.md   # a list closed on its line is one plain value
 
   cap_scan *.md > "$scan"
 
-  # <kind> <file> [<words>]: the report each flag case must raise.
+  # <kind> <file> [<words> | <reason word> | <matches>]: the report each flag
+  # case must raise. An UNSCANNED case names a word from the reason it expects,
+  # so each fixture holds its own refusal and not whichever one happened to
+  # fire. An ANCHOR case names how many sentences equal the pinned clause.
   for c in "OVER over.md 26" "WRAP wrap.md" "OVER ellipsis.md 30" "OVER eg.md 30" \
-           "OVER heading.md 30" "OVER table.md 30" "OVER comment.md 30" \
-           "UNSCANNED comment-open.md" "OVER interrupted.md 30" \
-           "SPLIT split.md" "GROWN grown.md 31"; do
+           "OVER heading.md 30" "OVER comment.md 30" "UNSCANNED comment-open.md close" \
+           "OVER interrupted.md 31" "OVER wrapped-hash.md 30" "OVER hash-first.md 30" \
+           "UNSCANNED table.md table" "UNSCANNED wrapped-pipe.md table" \
+           "UNSCANNED inline-fence.md fence" "OVER inline-fence.md 30" "UNSCANNED open-fence.md fence" \
+           "UNSCANNED phantom-fence.md fence" "OVER phantom-fence.md 30" "UNSCANNED tilde.md fence" \
+           "UNSCANNED quoted-fence.md fence" "UNSCANNED indented.md indented" \
+           "UNSCANNED nbsp.md ASCII" "UNSCANNED emdash.md ASCII" "UNSCANNED narrow-space.md ASCII" "UNSCANNED crlf.md ASCII" \
+           "UNSCANNED entity.md reference" \
+           "UNSCANNED double-tick.md double" "UNSCANNED odd-tick.md unpaired" \
+           "UNSCANNED escaped-tick.md escaped" "UNSCANNED autolink.md angle" \
+           "UNSCANNED inline-comment.md inside" "UNSCANNED two-comments.md another" \
+           "UNSCANNED tag-attr.md attributes" "UNSCANNED link-title.md title" \
+           "OVER frontmatter.md 30" "WRAP list-wrap.md" "WRAP wrap-etc.md" \
+           "UNSCANNED fm-wrap.md key" "UNSCANNED fm-quoted.md key" "UNSCANNED fm-single.md key" \
+           "UNSCANNED fm-brace.md key" "UNSCANNED fm-list.md key" "UNSCANNED fm-nbsp.md ASCII" \
+           "UNSCANNED fm-dq-list.md key" "UNSCANNED fm-sq-list.md key" \
+           "UNSCANNED tag.md tag" "UNSCANNED close-tag.md tag" \
+           "UNSCANNED fm-folded.md key" "UNSCANNED fm-comment.md key" "UNSCANNED fm-nosep.md key" \
+           "UNSCANNED cdata.md CDATA" "UNSCANNED pi-space.md instruction" "UNSCANNED quoted-def.md link" \
+           "UNSCANNED link-dest.md link" "UNSCANNED ref-label.md link" "UNSCANNED ref-def.md link" \
+           "UNSCANNED pi.md instruction" "UNSCANNED decl.md declaration" \
+           "OVER seven-hash.md 30" "OVER paren-eg.md 30" \
+           "UNSCANNED indented-fence.md fence" "UNSCANNED tab-indent.md indented" \
+           "ANCHOR split.md 0" "ANCHOR grown.md 0" "OVER grown.md 36" "ANCHOR short.md 0" \
+           "ANCHOR decoy.md 1" "OVER decoy.md 30" "OVER copy.md 30" \
+           "ANCHOR parked.md 0" "OVER parked.md 30" "ANCHOR term.md 0" "OVER term.md 30" \
+           "ANCHOR span-order.md 0" "OVER span-order.md 30" \
+           "ANCHOR span.md 1" "ANCHOR span-swap.md 0" "OVER span-swap.md 30"; do
     read -r kind f n <<< "$c"
-    if ! grep -qE "^$kind $f:[0-9]+: ${n:+$n words}" "$scan"; then
-      echo "$f should raise $kind${n:+ at $n words}, and the scan said:"
+    case "$kind" in
+      OVER)      pat="^$kind $f:[0-9]+: $n words" ;;
+      UNSCANNED) pat="^$kind $f:[0-9]+: .*$n" ;;
+      ANCHOR)    pat="^ANCHOR $n $f ::" ;;
+      *)         pat="^$kind $f:" ;;
+    esac
+    if ! grep -qE "$pat" "$scan"; then
+      echo "$f should raise $kind${n:+ ($n)}, and the scan said:"
       grep " $f:" "$scan" | sed 's/^/  /' || echo "  nothing"
       bad=1
     fi
   done
 
-  for f in at-cap.md quote.md paren.md bold.md dash.md crlf.md list.md short.md whole.md; do
+  for f in at-cap.md quote.md paren.md bold.md dash.md list.md siblings.md whole.md span.md fm-list-ok.md; do
     grep -q "^SCANNED $f " "$scan" || { echo "$f passes because the scan read nothing out of it"; bad=1; }
     if grep -E "^[A-Z]+ $f:" "$scan" > "$BATS_TEST_TMPDIR/fx.hit"; then
       echo "$f is compliant, and the scan flagged it:"
@@ -541,10 +721,20 @@ cap_scan() { # cap_scan <file>...
   done
   # A line of punctuation is not a sentence. Counted as one, it lets a file
   # gutted to rules and dashes pass cell 1's check that each file has prose.
-  if ! grep -qx 'SCANNED wordless.md 0 0' "$scan"; then
+  # The frontmatter line is a unit and counts as read, never as the file's own.
+  if ! grep -qx 'SCANNED wordless.md 1 0' "$scan"; then
     echo "wordless.md holds no word, and the scan counted sentences in it: $(grep 'SCANNED wordless.md' "$scan")"
     bad=1
   fi
+  # And a `***` directly above the block must not run into the block's heading
+  # and count as the file's own prose: the sentinel ends a paragraph.
+  if ! grep -qE '^SCANNED gutted.md [0-9]+ 0$' "$scan"; then
+    echo "gutted.md holds no prose of its own, and the scan counted some: $(grep 'SCANNED gutted.md' "$scan")"
+    bad=1
+  fi
+  grep -qx 'ANCHOR 1 whole.md :: '"$clause" "$scan" || { echo "whole.md holds the pinned clause once, and the scan said: $(grep 'ANCHOR . whole.md' "$scan")"; bad=1; }
+  # OVER prints the sentence with its spans put back, as the pin compares it.
+  grep -q '^OVER span-swap.md:.*`wc -l`' "$scan" || { echo "span-swap.md's OVER line does not show its span: $(grep '^OVER span-swap.md:' "$scan")"; bad=1; }
   if grep '^MALFORMED ' "$scan"; then bad=1; fi
   [ "$bad" -eq 0 ]
 }
