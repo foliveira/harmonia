@@ -2,7 +2,7 @@
 
 # Harmonia
 
-A personal SDLC for Claude Code and OpenCode: thin lifecycle commands orchestrate a twelve-agent roster bound by the 4 Karpathy rules, hooks deterministically enforce everything a machine can check, and captured knowledge compounds across sessions and projects.
+A personal SDLC for Claude Code and OpenCode: thin lifecycle commands orchestrate a twelve-agent roster bound by Andrej Karpathy's and Rob Pike's rules, hooks deterministically enforce everything a machine can check, and captured knowledge compounds across sessions and projects.
 
 ## Why "Harmonia"
 
@@ -80,7 +80,7 @@ Ports arrive as PRs. These are the repo-side facts a port must honor — `bin/in
 
 ## Using it
 
-Every session starts with the 4 rules and relevant learnings injected automatically. The lifecycle is seven explicit commands:
+Every session starts with the rules and relevant learnings injected automatically. The lifecycle is seven explicit commands:
 
 | Command | What runs |
 |---|---|
@@ -185,6 +185,7 @@ The engine is bash + YAML only.
 
 Harmonia systematizes my own workflow. It vendors nothing, but draws inspiration from:
 [multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills) ·
+[Rob Pike's 5 Rules of Programming](https://www.cs.unc.edu/~stotts/COMP590-059-f24/robsrules.html) ·
 [EveryInc/compound-engineering-plugin](https://github.com/EveryInc/compound-engineering-plugin) ·
 [Yeachan-Heo/oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) ·
 [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) ·

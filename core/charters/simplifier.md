@@ -3,7 +3,7 @@ role: simplifier
 model_affinity: inherit
 consumes: [scope, diff]
 produces: [findings]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Simplifier

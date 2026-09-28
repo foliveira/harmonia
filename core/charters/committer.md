@@ -3,7 +3,7 @@ role: committer
 model_affinity: inherit
 consumes: [boundary, diff-summary, verdict]
 produces: [completion]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Committer

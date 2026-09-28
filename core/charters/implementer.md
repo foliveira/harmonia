@@ -3,7 +3,7 @@ role: implementer
 model_affinity: inherit
 consumes: [scope, design]
 produces: [boundary, diff-summary, diff]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Implementer

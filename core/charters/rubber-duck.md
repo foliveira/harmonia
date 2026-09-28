@@ -3,7 +3,7 @@ role: rubber-duck
 model_affinity: inherit
 consumes: [task-ask]
 produces: [insights]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Rubber Duck

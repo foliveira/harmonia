@@ -4,7 +4,7 @@ description: Harmonia onboard - capture an existing repo's canonical verify comm
 disable-model-invocation: true
 ---
 
-Your working contract is the 4 rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
+Your working contract is the rules; their digest is injected at session start - read `${CLAUDE_PLUGIN_ROOT}/core/RULES.md` in full only if that digest is not in your context.
 
 Attach Harmonia to a repository it did not scaffold. You capture the repo's own
 verify commands into `.harmonia/project.yaml` so the scoper authors success

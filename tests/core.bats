@@ -61,8 +61,9 @@ setup() {
   [[ "$output" == *"cannot validate"* ]]
 }
 
-@test "RULES.md carries each of the four rule names exactly once as a heading" {
-  for rule in "Think Before Coding" "Simplicity First" "Surgical Changes" "Goal-Driven Execution"; do
+@test "RULES.md carries each rule name exactly once as a heading" {
+  for rule in "Think Before Coding" "Simplicity First" "Surgical Changes" "Goal-Driven Execution" \
+              "Prove the Bottleneck" "Measure" "Don't Get Fancy" "Use Simple Algorithms" "Data Dominates"; do
     count=$(grep -c "^## .*$rule" "$REPO_ROOT/core/RULES.md")
     [ "$count" -eq 1 ]
   done

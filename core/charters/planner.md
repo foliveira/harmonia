@@ -3,7 +3,7 @@ role: planner
 model_affinity: inherit
 consumes: [scope]
 produces: [design]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Planner

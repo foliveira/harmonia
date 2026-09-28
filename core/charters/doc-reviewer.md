@@ -3,7 +3,7 @@ role: doc-reviewer
 model_affinity: inherit
 consumes: [docs, diff]
 produces: [findings]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Documentation Reviewer

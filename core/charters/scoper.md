@@ -3,7 +3,7 @@ role: scoper
 model_affinity: inherit
 consumes: [task-ask, ideas]
 produces: [scope]
-rules_binding: all-four
+rules_binding: all
 ---
 
 # Scoper
