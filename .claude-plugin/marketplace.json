@@ -9,7 +9,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/foliveira/harmonia.git",
-        "sha": "c3c4a8643e03cf64d0f99ad54e9a8a55fea48473"
+        "sha": "93c60272d62857023db178801328b2155a7c0450"
       },
       "description": "An SDLC for Claude Code and OpenCode: a twelve-agent roster bound by working rules, the lifecycle as explicit commands, gates that decide done-ness, and memory that compounds across projects."
     }
