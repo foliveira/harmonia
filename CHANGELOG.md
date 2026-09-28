@@ -2,6 +2,45 @@
 
 Versions are CalVer. Each release names the commit it was cut from, and installs are pinned to it rather than following `master`.
 
+## 2026.09.28
+
+### The contract
+
+Rob Pike's rules join the contract as rules 5 to 9: Prove the Bottleneck, Measure, Don't Get Fancy, Use Simple Algorithms and Data Dominates. Each carries a "Binding in Harmonia" clause, as the first four do. A change made for speed records the measurement that found its bottleneck. The scoper turns a speed goal into a `- run:` criterion, so review repeats the measurement. A design that reaches for a fancy algorithm names the n it expects, and the simplifier challenges it. The planner names data structures before the algorithms that use them. No new gate comes with these rules; the review lead judges them. The session-start digest lists all nine.
+
+### Gates
+
+Coverage is no longer a gate. `bin/coverage/` is gone with its bash, TypeScript and Go adapters, along with the gate report, the `harmonia:exempt` markers and the override audit log. The test engineer aims to exercise every changed line and branch, and judges that by reading the diff against the tests. Its charter refuses to add, configure or repair coverage tooling.
+
+- The implement loop ends when the test engineer reports no behavior left to pin and no changed code left unexercised. It is still capped at six rounds.
+- Review runs `criteria-run`, then `receipts`. The receipt audit moved to `bin/verify-receipts.sh`, and it now needs a fresh `criteria-run` receipt where it needed a coverage receipt.
+- `/harmonia:quick` runs no gates. Coverage and receipts were its only two.
+- A committed `.harmonia/coverage-exemptions.yaml` is no longer read and can be deleted.
+
+### Roster
+
+Every charter and lens ends with the same house-style block. It governs finished text a person reads: workspace artifacts, docs, learnings and commit messages. Reports to other agents are exempt. It caps a sentence at 25 words and prefers the active voice. Where it disagrees with a repo's commit conventions, the committer follows the house style.
+
+Prompts and user-facing messages no longer cite labels such as R9 or KTD11, which only this repo's plans define.
+
+### Memory
+
+Recall counts `.mjs` and `.cjs` files as JavaScript, so global entries tagged `javascript` now reach repos written as ES or CommonJS modules.
+
+### Setup
+
+`/harmonia:trust` and `bin/trust.sh` are removed. Consent existed only so the coverage gate could run a repository's `coverage:` command. `/harmonia:onboard` drops its coverage certification and captures the four verify commands: test, lint, typecheck and build. If `project.yaml` still holds a `coverage:` key, onboard tells you nothing reads it. Consent records under `~/.harmonia/trust/` (or `$HARMONIA_HOME/trust/`) are unused and can be deleted.
+
+### Trust model
+
+`SECURITY.md` loses its consent section. Two execution routes went with it: the coverage adapters running a clone's own suite, and a committed filename reaching the gate's language classifier. The routes left are the `project.yaml` verify values, the `- run:` criteria in `scope.md`, and the config a delivered `.git` carries. The guarded properties are now two, containment and provenance.
+
+Private vulnerability reporting on the Security tab is the only way to report a vulnerability. The email fallback is gone.
+
+### Verification
+
+214 tests across 12 bats files, plus `bin/validate-core.sh`. CI failed on `ubuntu-latest` at 2026.08.16 and passes now: bats comes from apt, and kcov and diff-cover are no longer installed.
+
 ## 2026.08.16
 
 First release.
